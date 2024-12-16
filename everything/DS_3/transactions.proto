@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package transactions;
+
+service TransactionService {
+    rpc Transact (TransactionRequest) returns (TransactionResponse);
+    rpc Promise (PromiseRequest) returns (PromiseResponse);
+    rpc Acknowledge(AcknowledgeRequest) returns (AcknowledgeResponse);
+    rpc Accept(AcceptRequest) returns (AcceptResponse);
+    rpc Accepted(AcceptedRequest) returns (AcceptedResponse);
+    rpc Commit(CommitRequest) returns (CommitResponse);
+    rpc GetBalance (GetBalanceRequest) returns (GetBalanceResponse);
+    rpc GetLogs (GetLogRequest) returns (GetLogResponse);
+    rpc GetDB(GetDBRequest) returns (GetDBResponse);
+    rpc UpdateDB(UpdateDBRequest) returns (UpdateDBResponse);
+    rpc GetPendingTransactions (GetPendingTransactionsRequest) returns (GetPendingTransactionsResponse);
+    rpc SetPendingTransactions (SetPendingTransactionsRequest) returns (SetPendingTransactionsResponse);
+    rpc SendDataStore (SendDataStoreRequest) returns (SendDataStoreResponse);
+    rpc ModifyDataStore (ModifyDataStoreRequest) returns (ModifyDataStoreResponse);
+    rpc Catchup (CatchupRequest) returns (CatchupResponse);
+}
+message CatchupRequest{
+    repeated string logs = 1;
+}
+message CatchupResponse{
+    bool message = 1;
+}
+message ModifyDataStoreRequest{
+    string transaction = 1;
+    repeated string server_list = 2;
+}
+message ModifyDataStoreResponse{
+    bool message = 1;
+}
+message SendDataStoreRequest{
+    string data = 1;
+}
+message SendDataStoreResponse{
+    bool message = 1;
+}
+
+message SetPendingTransactionsRequest{
+    string from_user = 1;
+    string to_user= 2;
+    int32 amount= 3;
+}
+message SetPendingTransactionsResponse{
+    bool message =1;
+}
+message GetPendingTransactionsRequest{
+    
+}
+message GetPendingTransactionsResponse{
+    repeated string pending_transactions = 1;
+}
+message UpdateDBRequest{
+    repeated string max_DB = 1;  
+}
+message UpdateDBResponse{
+    bool success = 1;
+}
+message GetDBRequest{
+    
+}
+message GetDBResponse{
+    repeated string DB = 1;
+}
+message GetLogRequest{
+
+}
+message GetLogResponse{
+    repeated string logs = 1;
+}
+message GetBalanceRequest{
+    int32 client_id = 1;
+}
+message GetBalanceResponse{
+    string balance = 1;
+}
+message CommitRequest{
+    int32 ballot = 1;
+    repeated string transaction_block = 2;
+    repeated string server_list = 3;
+    string leader = 4;
+    string transaction = 5;
+    bool isIntraShard = 6;
+}
+message CommitResponse{
+    bool message = 1;
+}
+message AcceptedRequest{
+    int32 accept_idp = 1;
+    repeated string transaction_block = 2;
+    repeated string server_list = 3;
+    string acceptor = 4;
+    string transaction = 5;
+    bool isIntraShard = 6;
+}
+message AcceptedResponse{
+    bool message = 1;
+}
+message AcceptRequest {
+    int32 accept_request_idp = 1;
+    repeated string transaction_block = 2;
+    repeated string server_list = 3;
+    string leader = 4;
+    string transaction = 5;
+    bool isIntraShard = 6;
+
+}
+message AcceptResponse{
+    bool message = 1;
+}
+message AcknowledgeRequest{
+    int32 promise_idp = 1;
+    string acceptor = 2;
+    repeated string local_transactions = 3;
+    repeated string server_list = 4;
+    repeated string accept_val = 5;
+    int32 accept_idp = 6;
+    string transaction = 7;
+    bool isIntraShard = 8;
+}
+message AcknowledgeResponse{
+    bool message = 1;
+}
+message PromiseRequest {
+    int32 prepare_idp = 1;
+    string proposer = 2;
+    repeated string server_list = 3;
+    string transaction = 4;
+    bool isIntraShard = 5;
+    
+}
+message PromiseResponse {
+    string message = 1;
+}
+message TransactionRequest {
+    string from_user = 1; 
+    string to_user = 2;     
+    int32 amount = 3; 
+    repeated string serverList = 4; 
+    string transaction = 5;
+    bool isIntraShard = 6;
+    bool isRollBack = 7;
+}
+message TransactionResponse {
+    string message = 1;
+}
+
