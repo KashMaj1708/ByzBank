@@ -179,6 +179,41 @@ class project4ServiceStub(object):
                 request_serializer=project4__pb2.ClientTransactionCrossShardRequest.SerializeToString,
                 response_deserializer=project4__pb2.ClientTransactionCrossShardResponse.FromString,
                 _registered_method=True)
+        self.GetDataStore = channel.unary_unary(
+                '/project4Service/GetDataStore',
+                request_serializer=project4__pb2.GetDataStoreRequest.SerializeToString,
+                response_deserializer=project4__pb2.GetDataStoreResponse.FromString,
+                _registered_method=True)
+        self.sendDataStore = channel.unary_unary(
+                '/project4Service/sendDataStore',
+                request_serializer=project4__pb2.sendDataStoreRequest.SerializeToString,
+                response_deserializer=project4__pb2.sendDataStoreResponse.FromString,
+                _registered_method=True)
+        self.BroadcastDataStoreCommit = channel.unary_unary(
+                '/project4Service/BroadcastDataStoreCommit',
+                request_serializer=project4__pb2.BroadcastDataStoreCommitRequest.SerializeToString,
+                response_deserializer=project4__pb2.BroadcastDataStoreCommitResponse.FromString,
+                _registered_method=True)
+        self.sendData = channel.unary_unary(
+                '/project4Service/sendData',
+                request_serializer=project4__pb2.sendDataRequest.SerializeToString,
+                response_deserializer=project4__pb2.sendDataResponse.FromString,
+                _registered_method=True)
+        self.send2PCommit = channel.unary_unary(
+                '/project4Service/send2PCommit',
+                request_serializer=project4__pb2.send2PCommitRequest.SerializeToString,
+                response_deserializer=project4__pb2.send2PCommitResponse.FromString,
+                _registered_method=True)
+        self.send2PAck = channel.unary_unary(
+                '/project4Service/send2PAck',
+                request_serializer=project4__pb2.send2PAckRequest.SerializeToString,
+                response_deserializer=project4__pb2.send2PAckResponse.FromString,
+                _registered_method=True)
+        self.ClientTransactionTripleCrossShard = channel.unary_unary(
+                '/project4Service/ClientTransactionTripleCrossShard',
+                request_serializer=project4__pb2.ClientTransactionTripleCrossShardRequest.SerializeToString,
+                response_deserializer=project4__pb2.ClientTransactionTripleCrossShardResponse.FromString,
+                _registered_method=True)
 
 
 class project4ServiceServicer(object):
@@ -359,6 +394,48 @@ class project4ServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetDataStore(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def sendDataStore(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def BroadcastDataStoreCommit(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def sendData(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def send2PCommit(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def send2PAck(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ClientTransactionTripleCrossShard(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_project4ServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -506,6 +583,41 @@ def add_project4ServiceServicer_to_server(servicer, server):
                     servicer.ClientTransactionCrossShard,
                     request_deserializer=project4__pb2.ClientTransactionCrossShardRequest.FromString,
                     response_serializer=project4__pb2.ClientTransactionCrossShardResponse.SerializeToString,
+            ),
+            'GetDataStore': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDataStore,
+                    request_deserializer=project4__pb2.GetDataStoreRequest.FromString,
+                    response_serializer=project4__pb2.GetDataStoreResponse.SerializeToString,
+            ),
+            'sendDataStore': grpc.unary_unary_rpc_method_handler(
+                    servicer.sendDataStore,
+                    request_deserializer=project4__pb2.sendDataStoreRequest.FromString,
+                    response_serializer=project4__pb2.sendDataStoreResponse.SerializeToString,
+            ),
+            'BroadcastDataStoreCommit': grpc.unary_unary_rpc_method_handler(
+                    servicer.BroadcastDataStoreCommit,
+                    request_deserializer=project4__pb2.BroadcastDataStoreCommitRequest.FromString,
+                    response_serializer=project4__pb2.BroadcastDataStoreCommitResponse.SerializeToString,
+            ),
+            'sendData': grpc.unary_unary_rpc_method_handler(
+                    servicer.sendData,
+                    request_deserializer=project4__pb2.sendDataRequest.FromString,
+                    response_serializer=project4__pb2.sendDataResponse.SerializeToString,
+            ),
+            'send2PCommit': grpc.unary_unary_rpc_method_handler(
+                    servicer.send2PCommit,
+                    request_deserializer=project4__pb2.send2PCommitRequest.FromString,
+                    response_serializer=project4__pb2.send2PCommitResponse.SerializeToString,
+            ),
+            'send2PAck': grpc.unary_unary_rpc_method_handler(
+                    servicer.send2PAck,
+                    request_deserializer=project4__pb2.send2PAckRequest.FromString,
+                    response_serializer=project4__pb2.send2PAckResponse.SerializeToString,
+            ),
+            'ClientTransactionTripleCrossShard': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClientTransactionTripleCrossShard,
+                    request_deserializer=project4__pb2.ClientTransactionTripleCrossShardRequest.FromString,
+                    response_serializer=project4__pb2.ClientTransactionTripleCrossShardResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1291,6 +1403,195 @@ class project4Service(object):
             '/project4Service/ClientTransactionCrossShard',
             project4__pb2.ClientTransactionCrossShardRequest.SerializeToString,
             project4__pb2.ClientTransactionCrossShardResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDataStore(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/project4Service/GetDataStore',
+            project4__pb2.GetDataStoreRequest.SerializeToString,
+            project4__pb2.GetDataStoreResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def sendDataStore(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/project4Service/sendDataStore',
+            project4__pb2.sendDataStoreRequest.SerializeToString,
+            project4__pb2.sendDataStoreResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def BroadcastDataStoreCommit(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/project4Service/BroadcastDataStoreCommit',
+            project4__pb2.BroadcastDataStoreCommitRequest.SerializeToString,
+            project4__pb2.BroadcastDataStoreCommitResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def sendData(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/project4Service/sendData',
+            project4__pb2.sendDataRequest.SerializeToString,
+            project4__pb2.sendDataResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def send2PCommit(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/project4Service/send2PCommit',
+            project4__pb2.send2PCommitRequest.SerializeToString,
+            project4__pb2.send2PCommitResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def send2PAck(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/project4Service/send2PAck',
+            project4__pb2.send2PAckRequest.SerializeToString,
+            project4__pb2.send2PAckResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClientTransactionTripleCrossShard(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/project4Service/ClientTransactionTripleCrossShard',
+            project4__pb2.ClientTransactionTripleCrossShardRequest.SerializeToString,
+            project4__pb2.ClientTransactionTripleCrossShardResponse.FromString,
             options,
             channel_credentials,
             insecure,

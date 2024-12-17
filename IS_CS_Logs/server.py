@@ -17,7 +17,7 @@ import ast
 import project4_pb2
 import project4_pb2_grpc
 from collections import deque
-
+from collections import defaultdict
 def load_public_key_client(client):
     with open(f"./keys/client_keys/client_{client}_public_key.pem", "rb") as f:
         return serialization.load_pem_public_key(f.read())
@@ -46,6 +46,9 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
         self.pending_queue = {}
         self.pending_transactions = deque()
         self.pending_transactions_cross_shard = deque()
+        self.datastore = []
+        self.persistent_datastore = []
+        self.wal = []
         #self.contact_servers = ["500051","500054","500057"]
         #self.server_list_clustered = [["500051","500052","500053"],["500054","500055","500056"],["500057","500058","500059"]]
     def increment_sequence_number(self):
@@ -93,6 +96,282 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
         ClientQuery = Query()
         client_balance = self.db.get(ClientQuery.client_id == request.client_id)
         return project4_pb2.GetBalanceResponse(balance= str(client_balance['balance']) if client_balance else "NA")
+    async def GetDataStore(self,request,context):
+        return project4_pb2.GetDataStoreResponse(datastore = self.datastore)
+    async def sendDataStore(self,request,context):
+        self.datastore = request.datastore
+        return project4_pb2.sendDataStoreResponse(response=True)
+    async def sendData(self,request,context):
+        self.datastore.append(request.transaction)
+        return project4_pb2.sendDataResponse(response=True)
+    async def send2PCommit(self,request,context):
+        print("2PCommit")
+    
+    async def BroadcastDataStoreCommit(self,request,context):
+        print("BroadcastDataStoreCommit")
+        print(request.transactions)
+
+        t = request.transactions.strip('()')
+        t = t+ ", C"
+        print(t)
+        self.datastore.append(t)
+        byz = [p for p in request.server_list if p not in request.byzantine_list and p!=self.port]
+        print("List")
+        print(byz)
+        for i in byz:
+            print(f"Sending to {i}")
+            async with grpc.aio.insecure_channel(f'localhost:{i}') as channel:
+                stub = project4_pb2_grpc.project4ServiceStub(channel)
+                request = project4_pb2.sendDataRequest(
+                    transaction = t
+                )
+                try:
+                    response = await stub.sendData(request)
+                    
+                except Exception as e:
+                    print("Error in sending datastore")
+                    print(e)
+        return project4_pb2.BroadcastDataStoreCommitResponse(response=True)
+    async def ClientTransactionTripleCrossShard (self,request,context):
+        try:
+            print("Executing Cross Shard Transaction")
+            if self.pending_transactions_cross_shard and not request.isPendingTrans:
+                return project4_pb2.ClientTransactionCrossShardResponse(response=False)
+                # while self.pending_transactions_cross_shard:
+                #     self.sequence_number, pending_request = self.pending_transactions_cross_shard.popleft()
+                #     print("pending request")
+                #     print(pending_request)
+                #     print("current request")
+                #     print(request)
+                #     #pending_request.server_list = request.server_list
+                #     try:
+                #         new_request = project4_pb2.ClientTransactionCrossShardRequest(
+                #             name=pending_request.name,
+                #             message=pending_request.message,
+                #             timestamp=pending_request.timestamp,
+                #             signature=pending_request.signature,
+                #             server_list_1 = request.server_list_1,
+                #             server_list_2 = request.server_list_2,
+                #             byzantine_list = request.byzantine_list,
+                #             isIntraShard = pending_request.isIntraShard,
+                #             #isRollBack = pending_request.isRollBack,
+                #             signature_1 = pending_request.signature_1,
+                #             signature_2 = pending_request.signature_2,
+                #             contact_server_list = request.contact_server_list,
+                #             isPendingTrans = True
+                #         )
+                #         print("New Request")
+                #         print(new_request)
+                #         async with grpc.aio.insecure_channel("localhost:"+self.port) as channel:
+                #             stub = project4_pb2_grpc.project4ServiceStub(channel)
+                #             response = await stub.ClientTransactionCrossShard(new_request)
+                #             print("Sent pending transaction")
+                #             print(new_request.message)
+
+                #             print(response)
+                #             #print(request)
+                #     except Exception as e:
+                #         print(e)
+            
+            #return project4_pb2.ClientTransactionCrossShardResponse(response=True)
+            cleaned = request.message.strip("()").replace("'", "").split(",")
+            cleaned = [x.strip(" ") for x in cleaned]
+            print(f"Cleaned = {cleaned}")  
+            TwoPhase = {}
+            transactions = request.message
+            timestamp = request.timestamp
+            byzantine_list = request.byzantine_list
+            server_list_1 = request.server_list_1
+            server_list_2 = request.server_list_2
+            server_list_3 = request.server_list_3
+            signature = request.signature
+            contact_server_list = request.contact_server_list
+            signature_1 = request.signature_1
+            signature_2 = request.signature_2 
+            signature_3 = request.signature_3
+            message = request.message 
+            a = int(cleaned[0])//1000
+            b = int(cleaned[1])//1000
+            c = int(cleaned[2])//1000
+            print(f" A-> {request.contact_server_list[a]} B-> {request.contact_server_list[b]}")
+            print(f"Server LISTS, server_list_1 = {request.server_list_1} server_list_2 = {request.server_list_2}")
+            r = request
+            request = project4_pb2.ClientTransactionRequest(
+                        name=cleaned[0],
+                        message=request.message,
+                        timestamp=timestamp,
+                        signature=signature_1,
+                        server_list = server_list_1,
+                        byzantine_list = list(byzantine_list),
+                        isIntraShard = False,
+                        cross_shard_request = r,
+                        commitblock  =str(self.request_block_commit)
+                        #view_number = view_number
+                    )
+            #print(request)
+            print("Ultra A")
+            print(request)
+            async with grpc.aio.insecure_channel("localhost:"+str(contact_server_list[a])) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await stub.ClientTransaction(request) 
+                        print("Done with first phase")
+                        print(response)
+                    except Exception as e:
+                        print(e)
+            TwoPhase[request.message] = response.response
+            print("Ultra B")
+            print(b)
+            if response.response == "ABORTED":
+                print("Failed in the second phase")
+                return project4_pb2.ClientTransactionCrossShardResponse(response=False)
+            
+            request = project4_pb2.ClientTransactionRequest(
+                        name=cleaned[2],
+                        message=request.message,
+                        timestamp=timestamp,
+                        signature=signature_3,
+                        server_list = server_list_3,
+                        byzantine_list = list(byzantine_list),
+                        isIntraShard = False,
+                        cross_shard_request = r
+                       
+                        #view_number = view_number
+                    )
+            async with grpc.aio.insecure_channel("localhost:"+contact_server_list[c]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await asyncio.wait_for(stub.ClientTransaction(request),timeout=10)
+                        print("Done with second phase")
+                        print(response)
+                    except Exception as e:
+                        print(e)
+            request = project4_pb2.ClientTransactionRequest(
+                        name=cleaned[1],
+                        message=request.message,
+                        timestamp=timestamp,
+                        signature=signature_2,
+                        server_list = server_list_2,
+                        byzantine_list = list(byzantine_list),
+                        isIntraShard = False,
+                        cross_shard_request = r
+                       
+                        #view_number = view_number
+                    )
+            async with grpc.aio.insecure_channel("localhost:"+contact_server_list[b]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await asyncio.wait_for(stub.ClientTransaction(request),timeout=10)
+                        print("Done with second phase")
+                        print(response)
+                    except Exception as e:
+                        print(e)
+            print(f"TwoPhase = {TwoPhase}")
+            if response.response == "ABORTED":
+                print("Failed phase proceeding ROLLBACK")
+                cleaned[3] = str(int(cleaned[2])*-1)
+                s = f"({', '.join(cleaned)})"
+                request = project4_pb2.ClientTransactionRequest(
+                        name=cleaned[0],
+                        message=s,
+                        timestamp=timestamp,
+                        signature=signature_1,
+                        server_list = server_list_1,
+                        byzantine_list = list(byzantine_list),
+                        isIntraShard = False
+                        #view_number = view_number
+                    )
+                async with grpc.aio.insecure_channel("localhost:"+contact_server_list[a]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await stub.ClientTransaction(request) 
+                        print("Done with ROLLBACK")
+                        print(response)
+                    except Exception as e:
+                        print(e)
+                async with grpc.aio.insecure_channel("localhost:"+contact_server_list[b]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await stub.ClientTransaction(request) 
+                        print("Done with ROLLBACK")
+                        print(response)
+                    except Exception as e:
+                        print(e)
+            else:
+                print("Transaction successful")
+                request = project4_pb2.BroadcastDataStoreCommitRequest(
+                    transactions = transactions,
+                    server_list = server_list_1,
+                    byzantine_list = byzantine_list
+                )
+                async with grpc.aio.insecure_channel("localhost:"+contact_server_list[a]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await stub.BroadcastDataStoreCommit(request)
+                        #print("Done with commit")
+                        print(response)
+                    except Exception as e:
+                        print("Error in broadcast bhejna")
+                        print(e)
+                request = project4_pb2.BroadcastDataStoreCommitRequest(
+                    transactions = transactions,
+                    server_list = server_list_2,
+                    byzantine_list = byzantine_list
+                )
+                async with grpc.aio.insecure_channel("localhost:"+contact_server_list[b]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await stub.BroadcastDataStoreCommit(request)
+                        #print("Done with commit")
+                        print(response)
+                    except Exception as e:
+                        print(e)
+            # grouped = defaultdict(set)
+            # for item in self.datastore:
+            #     x, y, z, status = item.split(', ')
+            #     grouped[(x, y, z)].add(status)
+
+            # to_add = [f"{x}, {y}, {z}, C" for (x, y, z), statuses in grouped.items() if 'P' in statuses and 'A' not in statuses]
+            # self.datastore.extend(to_add)
+            # #self.datastore = [f"{x}, {y}, {z}, {k}" for x, y, z, k in self.datastore]
+            # llm = [ x for x in server_list_1 if x not in request.byzantine_list]
+            # for i in llm:
+            #     async with grpc.aio.insecure_channel(f'localhost:{i}') as channel:
+            #         stub = project4_pb2_grpc.project4ServiceStub(channel)
+            #         request = project4_pb2.sendDataStoreRequest(
+            #             datastore = self.datastore
+            #         )
+            #         try:
+            #             response = await stub.sendDataStore(request)
+            #         except Exception as e:
+            #             print("Error in sending datastore")
+            #             print(e)
+            # print(f"LLM = {llm}")
+            async with grpc.aio.insecure_channel("localhost:"+contact_server_list[b]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        request = project4_pb2.send2PCommitRequest(
+                            transaction = transactions,
+                            commitblock = str(self.request_block_commit)
+                        )
+                        await stub.send2PCommit(request)
+                    except Exception as e:
+                        print(e)
+            async with grpc.aio.insecure_channel("localhost:"+contact_server_list[a]) as channel:
+                stub = project4_pb2_grpc.project4ServiceStub(channel)
+                try:
+                    request = project4_pb2.send2PAckRequest(
+                        transaction = transactions,
+                    )
+                    await stub.send2PAck(request)
+                except Exception as e:
+                    print(e)
+            self.wal = []
+
+            return project4_pb2.ClientTransactionCrossShardResponse(response=True)
+        except Exception as e:
+            print("Exception in Cross Shard Transaction")
+            print(e)
     async def ClientTransactionCrossShard (self,request,context):
         try:
             print("Executing Cross Shard Transaction")
@@ -162,7 +441,8 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
                         server_list = server_list_1,
                         byzantine_list = list(byzantine_list),
                         isIntraShard = False,
-                        cross_shard_request = r
+                        cross_shard_request = r,
+                        commitblock  =str(self.request_block_commit)
                         #view_number = view_number
                     )
             #print(request)
@@ -191,12 +471,13 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
                         byzantine_list = list(byzantine_list),
                         isIntraShard = False,
                         cross_shard_request = r
+                       
                         #view_number = view_number
                     )
             async with grpc.aio.insecure_channel("localhost:"+contact_server_list[b]) as channel:
                     stub = project4_pb2_grpc.project4ServiceStub(channel)
                     try:
-                        response = await stub.ClientTransaction(request) 
+                        response = await asyncio.wait_for(stub.ClientTransaction(request),timeout=10)
                         print("Done with second phase")
                         print(response)
                     except Exception as e:
@@ -224,6 +505,77 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
                         print(response)
                     except Exception as e:
                         print(e)
+            else:
+                print("Transaction successful")
+                request = project4_pb2.BroadcastDataStoreCommitRequest(
+                    transactions = transactions,
+                    server_list = server_list_1,
+                    byzantine_list = byzantine_list
+                )
+                async with grpc.aio.insecure_channel("localhost:"+contact_server_list[a]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await stub.BroadcastDataStoreCommit(request)
+                        #print("Done with commit")
+                        print(response)
+                    except Exception as e:
+                        print("Error in broadcast bhejna")
+                        print(e)
+                request = project4_pb2.BroadcastDataStoreCommitRequest(
+                    transactions = transactions,
+                    server_list = server_list_2,
+                    byzantine_list = byzantine_list
+                )
+                async with grpc.aio.insecure_channel("localhost:"+contact_server_list[b]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        response = await stub.BroadcastDataStoreCommit(request)
+                        #print("Done with commit")
+                        print(response)
+                    except Exception as e:
+                        print(e)
+            # grouped = defaultdict(set)
+            # for item in self.datastore:
+            #     x, y, z, status = item.split(', ')
+            #     grouped[(x, y, z)].add(status)
+
+            # to_add = [f"{x}, {y}, {z}, C" for (x, y, z), statuses in grouped.items() if 'P' in statuses and 'A' not in statuses]
+            # self.datastore.extend(to_add)
+            # #self.datastore = [f"{x}, {y}, {z}, {k}" for x, y, z, k in self.datastore]
+            # llm = [ x for x in server_list_1 if x not in request.byzantine_list]
+            # for i in llm:
+            #     async with grpc.aio.insecure_channel(f'localhost:{i}') as channel:
+            #         stub = project4_pb2_grpc.project4ServiceStub(channel)
+            #         request = project4_pb2.sendDataStoreRequest(
+            #             datastore = self.datastore
+            #         )
+            #         try:
+            #             response = await stub.sendDataStore(request)
+            #         except Exception as e:
+            #             print("Error in sending datastore")
+            #             print(e)
+            # print(f"LLM = {llm}")
+            async with grpc.aio.insecure_channel("localhost:"+contact_server_list[b]) as channel:
+                    stub = project4_pb2_grpc.project4ServiceStub(channel)
+                    try:
+                        request = project4_pb2.send2PCommitRequest(
+                            transaction = transactions,
+                            commitblock = str(self.request_block_commit)
+                        )
+                        await stub.send2PCommit(request)
+                    except Exception as e:
+                        print(e)
+            async with grpc.aio.insecure_channel("localhost:"+contact_server_list[a]) as channel:
+                stub = project4_pb2_grpc.project4ServiceStub(channel)
+                try:
+                    request = project4_pb2.send2PAckRequest(
+                        transaction = transactions,
+                    )
+                    await stub.send2PAck(request)
+                except Exception as e:
+                    print(e)
+            self.wal = []
+
             return project4_pb2.ClientTransactionCrossShardResponse(response=True)
         except Exception as e:
             print("Exception in Cross Shard Transaction")
@@ -324,6 +676,21 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
             self.transaction_list[self.sequence_number] = l
             response = await self.sendPrePrepare(request.server_list,self.view_number,request,request.byzantine_list,digest,isIntrashard,transaction_sequence_number,request.isPendingTrans,request.cross_shard_request)
             print(f"L1 {response}")
+            # if request.isIntraShard:
+            #     #self.datastore = [f"{x}, {y}, {z}, {k}" for x, y, z, k in self.datastore]
+            #     llb = [ x for x in request.server_list if x not in request.byzantine_list]
+            #     for i in llb:
+            #         async with grpc.aio.insecure_channel(f'localhost:{i}') as channel:
+            #             stub = project4_pb2_grpc.project4ServiceStub(channel)
+            #             request = project4_pb2.sendDataStoreRequest(
+            #                 datastore = self.datastore
+            #             )
+            #             try:
+            #                 response = await stub.sendDataStore(request)
+            #             except Exception as e:
+            #                 print("Error in sending datastore")
+            #                 print(e)
+            #print(f"LLB = {llb}")
             return project4_pb2.ClientTransactionResponse(response="ABORTED"if response==False else "ACCEPTED")
     
             
@@ -679,6 +1046,7 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
                                 print(type(x))
                                 self.db.update({'balance': client_a_balance - int(amt)}, ClientQuery.client_id == int(x))
                                 self.db.update({'balance': client_b_balance + int(amt)}, ClientQuery.client_id == int(y))
+                                self.datastore.append(f"{x}, {y}, {amt}, X")
                                 #filtered_deque = deque(item for item in my_deque if item[0] != value_to_remove)
                                 self.pending_transactions = deque(item for item in self.pending_transactions if item[0] != seq)
                                 print("Intra Shard QUEUE")
@@ -697,9 +1065,17 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
                                 if client_a_balance is not None:
                                     self.db.update({'balance': client_a_balance - int(amt)}, 
                                                 ClientQuery.client_id == int(x))
+                                    if amt>0:
+                                        self.datastore.append(f"{x}, {y}, {amt}, P")
+                                    else:
+                                        self.datastore.append(f"{x}, {y}, {int(amt)*-1}, A")
                                 else:
                                     print("<< Check 7")
                                     self.db.update({'balance': client_b_balance + int(amt)}, ClientQuery.client_id == int(y))
+                                    if amt>0:
+                                        self.datastore.append(f"{x}, {y}, {amt}, P")
+                                    else:
+                                        self.datastore.append(f"{x}, {y}, {int(amt)*-1}, A")
                                     #self.client_balances[int(x[1])]+=int(x[2])
                                     print("Client Balances ")
                             #if self.balances[x] - amt >= 0:
@@ -795,6 +1171,8 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
                                 print(self.locks)
                                 self.db.update({'balance': client_a_balance - int(amt)}, ClientQuery.client_id == int(x))
                                 self.db.update({'balance': client_b_balance + int(amt)}, ClientQuery.client_id == int(y))
+                                self.wal.append(f"{x}, {y}, {amt}")
+                                self.datastore.append(f"{x}, {y}, {amt}, X")
                                 try:
                                     if str(x) in self.locks:
                                         del self.locks[str(x)]
@@ -809,10 +1187,22 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
                                 if client_a_balance is not None:
                                     self.db.update({'balance': client_a_balance - int(amt)}, 
                                                 ClientQuery.client_id == int(x))
+                                    if amt>0:
+                                        self.wal.append(f"{x}, {y}, {amt}")
+                                        self.datastore.append(f"{x}, {y}, {amt}, P")
+                                    else:
+                                        self.wal.append(f"{x}, {y}, {amt}")
+                                        self.datastore.append(f"{x}, {y}, {int(amt)*-1}, A")
                                     print(f"Redacting {amt} from {x}")
                                 else:
                                     print("<< Check 7")
                                     self.db.update({'balance': client_b_balance + int(amt)}, ClientQuery.client_id == int(y))
+                                    if amt>0:
+                                        self.wal.append(f"{x}, {y}, {amt}")
+                                        self.datastore.append(f"{x}, {y}, {amt}, P")
+                                    else:
+                                        self.wal.append(f"{x}, {y}, {amt}")
+                                        self.datastore.append(f"{x}, {y}, {int(amt)*-1}, A")
                                     #self.client_balances[int(x[1])]+=int(x[2])
                                     print("Client Balances ")
                         flag4 = 1
@@ -847,6 +1237,8 @@ class Server(project4_pb2_grpc.project4ServiceServicer):
             return project4_pb2.CommitBroadcastResponse(response=False)
         except Exception as e:
             print("E3")
+async def send2PAck(self,request,context):
+        print("2PAck")
 async def serve(port, server_name):
     server = grpc.aio.server() 
     project4_pb2_grpc.add_project4ServiceServicer_to_server(Server(server_name,port), server)

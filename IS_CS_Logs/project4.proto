@@ -31,6 +31,75 @@ service project4Service {
     rpc ModifyDataStore (ModifyDataStoreRequest) returns (ModifyDataStoreResponse);
     rpc Catchup (CatchupRequest) returns (CatchupResponse);
     rpc ClientTransactionCrossShard (ClientTransactionCrossShardRequest) returns (ClientTransactionCrossShardResponse);
+    rpc GetDataStore (GetDataStoreRequest) returns (GetDataStoreResponse);
+    rpc sendDataStore (sendDataStoreRequest) returns (sendDataStoreResponse);
+    rpc BroadcastDataStoreCommit (BroadcastDataStoreCommitRequest) returns (BroadcastDataStoreCommitResponse);
+    rpc sendData (sendDataRequest) returns (sendDataResponse);
+    rpc send2PCommit (send2PCommitRequest) returns (send2PCommitResponse);
+    rpc send2PAck (send2PAckRequest) returns (send2PAckResponse);
+    rpc ClientTransactionTripleCrossShard (ClientTransactionTripleCrossShardRequest) returns (ClientTransactionTripleCrossShardResponse);
+}
+message ClientTransactionTripleCrossShardRequest {
+    string name = 1;
+    //int32 value = 2;
+    string message = 3;  // Field for the message
+    int64 timestamp = 4; // Change to int64 for Unix timestamp
+    bytes signature = 5;
+    repeated string server_list_1 = 6;
+    repeated string server_list_2 = 7;
+    repeated string byzantine_list = 8;
+    int32 view_number = 9;
+    bool isIntraShard = 10;
+    repeated string contact_server_list = 11;
+    bytes signature_1 = 12;
+    bytes signature_2 = 13;
+    bool isPendingTrans = 14;
+    repeated string server_list_3 = 15;
+    bytes signature_3 = 16;
+
+}
+message ClientTransactionTripleCrossShardResponse {
+    bool response = 1;
+}
+message send2PCommitRequest{
+    string transaction = 1;
+    string commitblock = 2;
+}
+message send2PCommitResponse{
+    
+}
+message send2PAckRequest{
+    string transaction = 1;
+}
+message send2PAckResponse{
+    
+}
+message sendDataRequest{
+    string transaction = 1;
+}
+message sendDataResponse{
+    bool response = 1;
+}
+
+message BroadcastDataStoreCommitRequest{
+    string transactions = 1;
+    repeated string server_list = 2;
+    repeated string byzantine_list = 3;
+}
+message BroadcastDataStoreCommitResponse{
+    bool response = 1;
+}
+message sendDataStoreRequest{
+    repeated string datastore = 1;
+}
+message sendDataStoreResponse{
+    bool response = 1;
+}
+message GetDataStoreRequest{
+    
+}
+message GetDataStoreResponse{
+    repeated string datastore = 1;
 }
 message ClientTransactionCrossShardRequest {
     string name = 1;
@@ -320,6 +389,7 @@ message ClientTransactionRequest {
     repeated string contact_server_list = 11;
     bool isPendingTrans = 12;
     ClientTransactionCrossShardRequest cross_shard_request = 13;
+    string commitblock = 14;
 }
 
 message ClientTransactionResponse {
