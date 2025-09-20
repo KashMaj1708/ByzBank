@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+service PBFTService {
+    rpc ClientTransaction (ClientTransactionRequest) returns (ClientTransactionResponse);
+    rpc ReplicaPrePrepare(PrePrepareRequest) returns (PrePrepareResponse);
+    rpc Prepare(PrepareRequest) returns (PrepareResponse);
+    rpc PrepareBroadcast(PrepareBroadcastRequest) returns (PrepareBroadcastResponse);
+    rpc Commit(CommitRequest) returns (CommitResponse);
+    rpc CommitBroadcast(CommitBroadcastRequest) returns (CommitBroadcastResponse);
+    rpc ResetServerState (ResetServerStateRequest) returns (ResetServerStateResponse);
+    rpc GetServerBalances (BalancesRequest) returns (BalancesResponse);
+    rpc ViewChange (ViewChangeRequest) returns (ViewChangeResponse);
+    rpc NewView (NewViewRequest) returns (NewViewResponse);
+    rpc PrintLog (PrintLogRequest) returns (PrintLogResponse);
+    rpc PrintStatus (PrintStatusRequest) returns (PrintStatusResponse);
+    rpc PrintView (PrintViewRequest) returns (PrintViewResponse);
+    rpc ChangeServerTimeout (ChangeServerTimeoutRequest) returns (ChangeServerTimeoutResponse);
+}
+message ChangeServerTimeoutRequest {
+}
+message ChangeServerTimeoutResponse {
+
+}
+message PrintViewRequest {
+}
+message PrintViewResponse {
+    string view_logs = 1;
+}
+message PrintStatusRequest {
+    int32 sequence_number = 1;
+}
+message PrintStatusResponse {
+    string status = 1;
+}
+message PrintLogRequest {
+}
+message PrintLogResponse {
+    string log = 1;
+}
+
+message NewViewRequest {
+    int32 view_number = 1;
+    string name = 2;
+    bytes signature = 3;
+    repeated ViewChangeRequest view_certificate  = 4;
+    repeated string byzantine_list = 5;
+
+}
+message NewViewResponse {
+    bool response = 1;
+}
+message ViewChangeRequest {
+    int32 view_number = 1;
+    string name = 2;
+    bytes signature = 3;
+    repeated string server_list = 4;
+    repeated string byzantine_list = 5;
+}
+message ViewChangeResponse{
+    bool response = 1;
+}
+message BalancesRequest {
+}
+message BalancesResponse {
+    map<string, int32> balances = 1;
+}
+message ResetServerStateRequest {
+}
+
+message ResetServerStateResponse {
+    bool reset_successful = 1;
+    string server_port = 2;
+}
+message CommitBroadcastRequest {
+    int32 view_number = 1;
+    int32 sequence_number = 2;
+    string name = 3;
+    bytes signature = 4;
+    repeated CommitRequest commit_requests_block = 5;
+    string digest = 6;
+    repeated string server_list = 7;
+    repeated string byzantine_list = 8;
+}
+message CommitBroadcastResponse {
+    bool response = 1;
+}
+message CommitRequest {
+    string digest = 1;
+    int32 view_number = 2;
+    int32 sequence_number = 3;
+    string name = 4;
+    bytes signature = 5;
+    repeated string server_list = 6;
+    repeated string byzantine_list = 7;
+}
+message CommitResponse {
+    bool response = 1;
+}
+message PrepareBroadcastRequest {
+    int32 view_number = 1;
+    int32 sequence_number = 2;
+    string name = 3;
+    bytes signature = 4;
+    repeated PrepareRequest prepare_requests_block = 5;
+    string digest = 6;
+    repeated string server_list = 7;
+    repeated string byzantine_list = 8;
+}
+message PrepareBroadcastResponse {
+    bool response = 1;
+}
+message PrepareRequest {
+    string digest = 1;
+    int32 view_number = 2;
+    int32 sequence_number = 3;
+    string name = 4;
+    bytes signature = 5;
+    repeated string server_list = 6;
+    repeated string byzantine_list = 7;
+}
+
+message PrepareResponse{
+    bool response = 1;
+}
+message PrePrepareRequest {
+    string digest = 1;
+    int32 sequence_number = 2;
+    int32 view_number = 3;
+    ClientTransactionRequest client_request = 4;
+    bytes signature = 5;
+    string name = 6;
+    repeated string server_list = 7;
+    repeated string byzantine_list = 8;
+}
+message PrePrepareResponse {
+    bool response = 1;
+}
+
+message ClientTransactionRequest {
+    string name = 1;
+    int32 value = 2;
+    string message = 3;  // Field for the message
+    int64 timestamp = 4; // Change to int64 for Unix timestamp
+    bytes signature = 5;
+    repeated string server_list = 6;
+    repeated string byzantine_list = 7;
+    int32 view_number = 8;
+}
+
+message ClientTransactionResponse {
+    bool response = 1;
+}
