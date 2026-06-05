@@ -1,0 +1,345 @@
+EXPECTED OUTPUT ORACLE — Test Set 2 (Cross-Shard)
+Topology: 3 clusters x 12 nodes, f=3, quorum=7
+  C1=S1..S12 (items 1-1000) primary S1
+  C2=S13..S24 (items 1001-2000) primary S13
+  C3=S25..S36 (items 2001-3000) primary S25
+All accounts start at 10. State carries across sets within this file.
+==============================================================================
+
+################  AFTER SET 1  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S19', 'S20', 'S21', 'S31', 'S32', 'S33']
+
+Transaction outcomes:
+  (299,1999,3) CROSS coord=C1 part=C2            -> COMMIT
+        bal[299]=7 bal[1999]=13
+  (1001,2999,6) CROSS coord=C2 part=C3           -> COMMIT
+        bal[1001]=4 bal[2999]=16
+  (2150,1111,9) CROSS coord=C3 part=C2           -> COMMIT
+        bal[2150]=1 bal[1111]=19
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[299] = 7  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1001] = 4  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1111] = 19  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1999] = 13  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2150] = 1  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2999] = 16  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 2 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+    C2: 6 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+    C3: 4 entries
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 2  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S19', 'S20', 'S21', 'S31', 'S32', 'S33']
+
+Transaction outcomes:
+  (296,1997,1) CROSS coord=C1 part=C2            -> COMMIT
+        bal[296]=9 bal[1997]=11
+  (296,1997,8) CROSS coord=C1 part=C2            -> COMMIT
+        bal[296]=1 bal[1997]=19
+  (2593,2297,3) INTRA C3                         -> COMMIT
+        bal[2593]=7 bal[2297]=13
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[296] = 1  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1997] = 19  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2297] = 13  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2593] = 7  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 6 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+    C2: 10 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+    C3: 5 entries
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          INTRA (2593,2297,3) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 3  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S19', 'S20', 'S21', 'S31', 'S32', 'S33']
+
+Transaction outcomes:
+  (793,1993,7) CROSS coord=C1 part=C2            -> COMMIT
+        bal[793]=3 bal[1993]=17
+  (1998,2998,19) CROSS coord=C2 part=C3          -> SKIP_INSUFFICIENT_COORD
+        bal[1998]=10 < 19 (coordinator ignores)
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[793] = 3  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1993] = 17  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1998] = 10  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2998] = 10  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 8 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+    C2: 12 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+    C3: 5 entries
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          INTRA (2593,2297,3) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 4  ################
+Live: [S1-S18, S25-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S31', 'S32', 'S33']
+
+Transaction outcomes:
+  (1877,2855,5) CROSS coord=C2 part=C3           -> ABORT_NO_QUORUM_COORD
+        coord C2 live=6 honest=6 < quorum 7
+  (1333,2333,3) CROSS coord=C2 part=C3           -> ABORT_NO_QUORUM_COORD
+        coord C2 live=6 honest=6 < quorum 7
+  (5,98,2) INTRA C1                              -> COMMIT
+        bal[5]=8 bal[98]=12
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[5] = 8  (shown on all servers of C1, incl. down/Byzantine)
+        bal[98] = 12  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1333] = 10  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1877] = 10  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2333] = 10  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2855] = 10  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 9 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+          INTRA (5,98,2) COMMIT
+    C2: 12 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+          [lagging/down this set: ['S19', 'S20', 'S21', 'S22', 'S23', 'S24']]
+    C3: 5 entries
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          INTRA (2593,2297,3) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 5  ################
+Live: [S1-S18, S25-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S31', 'S32', 'S33']
+
+Transaction outcomes:
+  (45,1355,5) CROSS coord=C1 part=C2             -> ABORT_NO_QUORUM_PART
+        part C2 live=6 honest=6 < quorum 7; coordinator WAL-undo, bal[45] restored to 10
+  (5,98,2) INTRA C1                              -> COMMIT
+        bal[5]=6 bal[98]=14
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[5] = 6  (shown on all servers of C1, incl. down/Byzantine)
+        bal[45] = 10  (shown on all servers of C1, incl. down/Byzantine)
+        bal[98] = 14  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1355] = 10  (shown on all servers of C2, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 12 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+          INTRA (5,98,2) COMMIT
+          CROSS (45,1355,5) PREPARE
+          CROSS (45,1355,5) COMMIT(ABORT)
+          INTRA (5,98,2) COMMIT
+    C2: 12 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+          [lagging/down this set: ['S19', 'S20', 'S21', 'S22', 'S23', 'S24']]
+    C3: 5 entries
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          INTRA (2593,2297,3) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 6  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S19', 'S20', 'S21', 'S31', 'S32', 'S33']
+
+Transaction outcomes:
+  (298,1789,3) CROSS coord=C1 part=C2            -> COMMIT
+        bal[298]=7 bal[1789]=13
+  (1061,2476,6) CROSS coord=C2 part=C3           -> COMMIT
+        bal[1061]=4 bal[2476]=16
+  (2850,1234,9) CROSS coord=C3 part=C2           -> COMMIT
+        bal[2850]=1 bal[1234]=19
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[298] = 7  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1061] = 4  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1234] = 19  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1789] = 13  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2476] = 16  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2850] = 1  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 14 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+          INTRA (5,98,2) COMMIT
+          CROSS (45,1355,5) PREPARE
+          CROSS (45,1355,5) COMMIT(ABORT)
+          INTRA (5,98,2) COMMIT
+          CROSS (298,1789,3) PREPARE
+          CROSS (298,1789,3) COMMIT
+    C2: 18 entries
+          CROSS (299,1999,3) PREPARE
+          CROSS (299,1999,3) COMMIT
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          CROSS (296,1997,1) PREPARE
+          CROSS (296,1997,1) COMMIT
+          CROSS (296,1997,8) PREPARE
+          CROSS (296,1997,8) COMMIT
+          CROSS (793,1993,7) PREPARE
+          CROSS (793,1993,7) COMMIT
+          CROSS (298,1789,3) PREPARE
+          CROSS (298,1789,3) COMMIT
+          CROSS (1061,2476,6) PREPARE
+          CROSS (1061,2476,6) COMMIT
+          CROSS (2850,1234,9) PREPARE
+          CROSS (2850,1234,9) COMMIT
+    C3: 9 entries
+          CROSS (1001,2999,6) PREPARE
+          CROSS (1001,2999,6) COMMIT
+          CROSS (2150,1111,9) PREPARE
+          CROSS (2150,1111,9) COMMIT
+          INTRA (2593,2297,3) COMMIT
+          CROSS (1061,2476,6) PREPARE
+          CROSS (1061,2476,6) COMMIT
+          CROSS (2850,1234,9) PREPARE
+          CROSS (2850,1234,9) COMMIT
+------------------------------------------------------------------------------
+
+================  FINAL BALANCES (all items touched in file)  ================
+  bal[5] = 6   (C1)
+  bal[45] = 10   (C1)
+  bal[98] = 14   (C1)
+  bal[296] = 1   (C1)
+  bal[298] = 7   (C1)
+  bal[299] = 7   (C1)
+  bal[793] = 3   (C1)
+  bal[1001] = 4   (C2)
+  bal[1061] = 4   (C2)
+  bal[1111] = 19   (C2)
+  bal[1234] = 19   (C2)
+  bal[1333] = 10   (C2)
+  bal[1355] = 10   (C2)
+  bal[1789] = 13   (C2)
+  bal[1877] = 10   (C2)
+  bal[1993] = 17   (C2)
+  bal[1997] = 19   (C2)
+  bal[1998] = 10   (C2)
+  bal[1999] = 13   (C2)
+  bal[2150] = 1   (C3)
+  bal[2297] = 13   (C3)
+  bal[2333] = 10   (C3)
+  bal[2476] = 16   (C3)
+  bal[2593] = 7   (C3)
+  bal[2850] = 1   (C3)
+  bal[2855] = 10   (C3)
+  bal[2998] = 10   (C3)
+  bal[2999] = 16   (C3)

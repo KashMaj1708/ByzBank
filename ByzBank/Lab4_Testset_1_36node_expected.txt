@@ -1,0 +1,294 @@
+EXPECTED OUTPUT ORACLE — Test Set 1 (Intra-Shard)
+Topology: 3 clusters x 12 nodes, f=3, quorum=7
+  C1=S1..S12 (items 1-1000) primary S1
+  C2=S13..S24 (items 1001-2000) primary S13
+  C3=S25..S36 (items 2001-3000) primary S25
+All accounts start at 10. State carries across sets within this file.
+==============================================================================
+
+################  AFTER SET 1  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S16', 'S17', 'S18', 'S28', 'S29', 'S30']
+
+Transaction outcomes:
+  (100,501,8) INTRA C1                           -> COMMIT
+        bal[100]=2 bal[501]=18
+  (1001,1650,2) INTRA C2                         -> COMMIT
+        bal[1001]=8 bal[1650]=12
+  (2800,2150,7) INTRA C3                         -> COMMIT
+        bal[2800]=3 bal[2150]=17
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[100] = 2  (shown on all servers of C1, incl. down/Byzantine)
+        bal[501] = 18  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1001] = 8  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1650] = 12  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2150] = 17  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2800] = 3  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 1 entries
+          INTRA (100,501,8) COMMIT
+    C2: 1 entries
+          INTRA (1001,1650,2) COMMIT
+    C3: 1 entries
+          INTRA (2800,2150,7) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 2  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S16', 'S17', 'S18', 'S28', 'S29', 'S30']
+
+Transaction outcomes:
+  (1201,1111,5) INTRA C2                         -> COMMIT
+        bal[1201]=5 bal[1111]=15
+  (1201,1299,3) INTRA C2                         -> COMMIT
+        bal[1201]=2 bal[1299]=13
+  (101,301,9) INTRA C1                           -> COMMIT
+        bal[101]=1 bal[301]=19
+  (299,1,4) INTRA C1                             -> COMMIT
+        bal[299]=6 bal[1]=14
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[1] = 14  (shown on all servers of C1, incl. down/Byzantine)
+        bal[101] = 1  (shown on all servers of C1, incl. down/Byzantine)
+        bal[299] = 6  (shown on all servers of C1, incl. down/Byzantine)
+        bal[301] = 19  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1111] = 15  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1201] = 2  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1299] = 13  (shown on all servers of C2, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 3 entries
+          INTRA (100,501,8) COMMIT
+          INTRA (101,301,9) COMMIT
+          INTRA (299,1,4) COMMIT
+    C2: 3 entries
+          INTRA (1001,1650,2) COMMIT
+          INTRA (1201,1111,5) COMMIT
+          INTRA (1201,1299,3) COMMIT
+    C3: 1 entries
+          INTRA (2800,2150,7) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 3  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S16', 'S17', 'S18', 'S28', 'S29', 'S30']
+
+Transaction outcomes:
+  (2995,2990,5) INTRA C3                         -> COMMIT
+        bal[2995]=5 bal[2990]=15
+  (791,997,3) INTRA C1                           -> COMMIT
+        bal[791]=7 bal[997]=13
+  (1895,1890,5) INTRA C2                         -> COMMIT
+        bal[1895]=5 bal[1890]=15
+  (2995,2994,7) INTRA C3                         -> SKIP_INSUFFICIENT
+        bal[2995]=5 < 7
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[791] = 7  (shown on all servers of C1, incl. down/Byzantine)
+        bal[997] = 13  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1890] = 15  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1895] = 5  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2990] = 15  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2994] = 10  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2995] = 5  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 4 entries
+          INTRA (100,501,8) COMMIT
+          INTRA (101,301,9) COMMIT
+          INTRA (299,1,4) COMMIT
+          INTRA (791,997,3) COMMIT
+    C2: 4 entries
+          INTRA (1001,1650,2) COMMIT
+          INTRA (1201,1111,5) COMMIT
+          INTRA (1201,1299,3) COMMIT
+          INTRA (1895,1890,5) COMMIT
+    C3: 2 entries
+          INTRA (2800,2150,7) COMMIT
+          INTRA (2995,2990,5) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 4  ################
+Live: [S1-S9, S13-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S16', 'S17', 'S18', 'S28', 'S29', 'S30']
+
+Transaction outcomes:
+  (2770,2799,1) INTRA C3                         -> COMMIT
+        bal[2770]=9 bal[2799]=11
+  (196,197,3) INTRA C1                           -> COMMIT
+        bal[196]=7 bal[197]=13
+  (1295,1990,17) INTRA C2                        -> SKIP_INSUFFICIENT
+        bal[1295]=10 < 17
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[196] = 7  (shown on all servers of C1, incl. down/Byzantine)
+        bal[197] = 13  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1295] = 10  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1990] = 10  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2770] = 9  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2799] = 11  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 5 entries
+          INTRA (100,501,8) COMMIT
+          INTRA (101,301,9) COMMIT
+          INTRA (299,1,4) COMMIT
+          INTRA (791,997,3) COMMIT
+          INTRA (196,197,3) COMMIT
+          [lagging/down this set: ['S10', 'S11', 'S12']]
+    C2: 4 entries
+          INTRA (1001,1650,2) COMMIT
+          INTRA (1201,1111,5) COMMIT
+          INTRA (1201,1299,3) COMMIT
+          INTRA (1895,1890,5) COMMIT
+    C3: 3 entries
+          INTRA (2800,2150,7) COMMIT
+          INTRA (2995,2990,5) COMMIT
+          INTRA (2770,2799,1) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 5  ################
+Live: [S1-S6, S13-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S16', 'S17', 'S18', 'S28', 'S29', 'S30']
+
+Transaction outcomes:
+  (973,707,2) INTRA C1                           -> ABORT_NO_QUORUM
+        C1 live=6 honest=6 < quorum 7
+  (1495,1490,3) INTRA C2                         -> COMMIT
+        bal[1495]=7 bal[1490]=13
+  (333,691,4) INTRA C1                           -> ABORT_NO_QUORUM
+        C1 live=6 honest=6 < quorum 7
+  (1690,1695,6) INTRA C2                         -> COMMIT
+        bal[1690]=4 bal[1695]=16
+  (2975,2970,9) INTRA C3                         -> COMMIT
+        bal[2975]=1 bal[2970]=19
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[333] = 10  (shown on all servers of C1, incl. down/Byzantine)
+        bal[691] = 10  (shown on all servers of C1, incl. down/Byzantine)
+        bal[707] = 10  (shown on all servers of C1, incl. down/Byzantine)
+        bal[973] = 10  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1490] = 13  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1495] = 7  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1690] = 4  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1695] = 16  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2970] = 19  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2975] = 1  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 5 entries
+          INTRA (100,501,8) COMMIT
+          INTRA (101,301,9) COMMIT
+          INTRA (299,1,4) COMMIT
+          INTRA (791,997,3) COMMIT
+          INTRA (196,197,3) COMMIT
+          [lagging/down this set: ['S7', 'S8', 'S9', 'S10', 'S11', 'S12']]
+    C2: 6 entries
+          INTRA (1001,1650,2) COMMIT
+          INTRA (1201,1111,5) COMMIT
+          INTRA (1201,1299,3) COMMIT
+          INTRA (1895,1890,5) COMMIT
+          INTRA (1495,1490,3) COMMIT
+          INTRA (1690,1695,6) COMMIT
+    C3: 4 entries
+          INTRA (2800,2150,7) COMMIT
+          INTRA (2995,2990,5) COMMIT
+          INTRA (2770,2799,1) COMMIT
+          INTRA (2975,2970,9) COMMIT
+------------------------------------------------------------------------------
+
+################  AFTER SET 6  ################
+Live: [S1-S36]
+Contact (primaries): ['S1', 'S13', 'S25']
+Byzantine: ['S16', 'S17', 'S18', 'S28', 'S29', 'S30']
+
+Transaction outcomes:
+  (888,777,5) INTRA C1                           -> COMMIT
+        bal[888]=5 bal[777]=15
+  (1415,1189,5) INTRA C2                         -> COMMIT
+        bal[1415]=5 bal[1189]=15
+  (2222,2333,6) INTRA C3                         -> COMMIT
+        bal[2222]=4 bal[2333]=16
+
+PrintBalance (committed balances of items touched in THIS set):
+        bal[777] = 15  (shown on all servers of C1, incl. down/Byzantine)
+        bal[888] = 5  (shown on all servers of C1, incl. down/Byzantine)
+        bal[1189] = 15  (shown on all servers of C2, incl. down/Byzantine)
+        bal[1415] = 5  (shown on all servers of C2, incl. down/Byzantine)
+        bal[2222] = 4  (shown on all servers of C3, incl. down/Byzantine)
+        bal[2333] = 16  (shown on all servers of C3, incl. down/Byzantine)
+
+PrintDatastore (committed entries per cluster, as seen by LIVE servers):
+    C1: 6 entries
+          INTRA (100,501,8) COMMIT
+          INTRA (101,301,9) COMMIT
+          INTRA (299,1,4) COMMIT
+          INTRA (791,997,3) COMMIT
+          INTRA (196,197,3) COMMIT
+          INTRA (888,777,5) COMMIT
+    C2: 7 entries
+          INTRA (1001,1650,2) COMMIT
+          INTRA (1201,1111,5) COMMIT
+          INTRA (1201,1299,3) COMMIT
+          INTRA (1895,1890,5) COMMIT
+          INTRA (1495,1490,3) COMMIT
+          INTRA (1690,1695,6) COMMIT
+          INTRA (1415,1189,5) COMMIT
+    C3: 5 entries
+          INTRA (2800,2150,7) COMMIT
+          INTRA (2995,2990,5) COMMIT
+          INTRA (2770,2799,1) COMMIT
+          INTRA (2975,2970,9) COMMIT
+          INTRA (2222,2333,6) COMMIT
+------------------------------------------------------------------------------
+
+================  FINAL BALANCES (all items touched in file)  ================
+  bal[1] = 14   (C1)
+  bal[100] = 2   (C1)
+  bal[101] = 1   (C1)
+  bal[196] = 7   (C1)
+  bal[197] = 13   (C1)
+  bal[299] = 6   (C1)
+  bal[301] = 19   (C1)
+  bal[333] = 10   (C1)
+  bal[501] = 18   (C1)
+  bal[691] = 10   (C1)
+  bal[707] = 10   (C1)
+  bal[777] = 15   (C1)
+  bal[791] = 7   (C1)
+  bal[888] = 5   (C1)
+  bal[973] = 10   (C1)
+  bal[997] = 13   (C1)
+  bal[1001] = 8   (C2)
+  bal[1111] = 15   (C2)
+  bal[1189] = 15   (C2)
+  bal[1201] = 2   (C2)
+  bal[1295] = 10   (C2)
+  bal[1299] = 13   (C2)
+  bal[1415] = 5   (C2)
+  bal[1490] = 13   (C2)
+  bal[1495] = 7   (C2)
+  bal[1650] = 12   (C2)
+  bal[1690] = 4   (C2)
+  bal[1695] = 16   (C2)
+  bal[1890] = 15   (C2)
+  bal[1895] = 5   (C2)
+  bal[1990] = 10   (C2)
+  bal[2150] = 17   (C3)
+  bal[2222] = 4   (C3)
+  bal[2333] = 16   (C3)
+  bal[2770] = 9   (C3)
+  bal[2799] = 11   (C3)
+  bal[2800] = 3   (C3)
+  bal[2970] = 19   (C3)
+  bal[2975] = 1   (C3)
+  bal[2990] = 15   (C3)
+  bal[2994] = 10   (C3)
+  bal[2995] = 5   (C3)

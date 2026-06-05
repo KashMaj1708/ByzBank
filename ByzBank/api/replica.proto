@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package replica;
+
+option go_package = "github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/pb";
+
+// Envelope is the signed wire message exchanged between replicas.
+// The signature covers sender_id, type, and payload (not the signature field).
+message Envelope {
+  int32 sender_id = 1;
+  string type = 2;
+  bytes payload = 3;
+  bytes signature = 4;
+}
+
+message SendAck {
+  bool ok = 1;
+  string error = 2;
+}
+
+// ReplicaTransport carries signed replica-to-replica messages.
+service ReplicaTransport {
+  rpc Send(Envelope) returns (SendAck);
+}
