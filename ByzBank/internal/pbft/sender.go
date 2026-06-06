@@ -69,3 +69,6 @@ func (s *HubSender) Primary() config.ServerID {
 	}
 	return s.Topo.PrimaryOf(srv.Cluster, s.View)
 }
+
+// SetView updates the view used to resolve the cluster primary.
+func (s *HubSender) SetView(v int) { s.View = v }

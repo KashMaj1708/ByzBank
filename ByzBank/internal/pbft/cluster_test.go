@@ -12,6 +12,7 @@ import (
 
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/config"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/crypto"
+	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/pb"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/pbft"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/server"
 )
@@ -24,6 +25,10 @@ type testCluster struct {
 }
 
 func startCluster(t *testing.T, cluster config.ClusterID) *testCluster {
+	return startClusterWithFaults(t, cluster, nil)
+}
+
+func startClusterWithFaults(t *testing.T, cluster config.ClusterID, faults map[config.ServerID]pbft.FaultConfig) *testCluster {
 	t.Helper()
 
 	topo := config.Default()
@@ -44,12 +49,19 @@ func startCluster(t *testing.T, cluster config.ClusterID) *testCluster {
 			cancel()
 			t.Fatalf("load keys %s: %v", srv.ID, err)
 		}
+		fc := pbft.DefaultFaultConfig()
+		if faults != nil {
+			if f, ok := faults[srv.ID]; ok {
+				fc = f
+			}
+		}
 		rep, err := server.NewReplicaWithConfig(server.ReplicaConfig{
 			Self:      srv.ID,
 			Topo:      &topo,
 			Ring:      ring,
 			Logger:    logger,
 			ReplySink: collector,
+			Fault:     fc,
 			DataDir:   dataDir,
 			Addr:      "127.0.0.1:0",
 		})
@@ -92,6 +104,36 @@ func (c *testCluster) submit(t *testing.T, req pbft.Request) {
 	if err != nil {
 		t.Fatalf("submit request: %v", err)
 	}
+}
+
+func (c *testCluster) submitWithRetry(t *testing.T, req pbft.Request) int {
+	t.Helper()
+	primary := c.primary()
+	injects := make([]func(*pb.Envelope) error, 0, len(c.replicas))
+	for _, rep := range c.replicas {
+		injects = append(injects, rep.Hub.Inject)
+	}
+	n, err := pbft.SubmitWithRetryForTopo(
+		&c.topo,
+		primary.Hub.Inject,
+		injects,
+		c.collector,
+		req,
+	)
+	if err != nil {
+		t.Fatalf("submit with retry: got %d replies, err=%v", n, err)
+	}
+	return n
+}
+
+func (c *testCluster) aliveReplicas() map[config.ServerID]*server.Replica {
+	out := make(map[config.ServerID]*server.Replica)
+	for id, rep := range c.replicas {
+		if rep.PBFT != nil {
+			out[id] = rep
+		}
+	}
+	return out
 }
 
 func updateServerAddr(topo *config.Topology, id config.ServerID, addr string) {

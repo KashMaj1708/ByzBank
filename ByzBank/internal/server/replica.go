@@ -13,6 +13,7 @@ import (
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/pbft"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/store"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/transport"
+	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/twopc"
 )
 
 // Replica wires transport, storage, PBFT, and the inbound dispatch loop.
@@ -23,6 +24,7 @@ type Replica struct {
 	Hub    *transport.Hub
 	Store  *store.Store
 	PBFT   *pbft.Engine
+	TwoPC  *twopc.Bridge
 	Logger *log.Logger
 
 	mu      sync.Mutex
@@ -32,24 +34,32 @@ type Replica struct {
 
 // ReplicaConfig configures a replica instance.
 type ReplicaConfig struct {
-	Self     config.ServerID
-	Topo     *config.Topology
-	Ring     *crypto.KeyRing
-	Store    *store.Store
-	Logger   *log.Logger
-	ReplySink pbft.ReplySink
-	DataDir  string // used when Store is nil
-	Addr     string // empty = topology port; "host:0" for tests
+	Self      config.ServerID
+	Topo      *config.Topology
+	Ring      *crypto.KeyRing
+	Store     *store.Store
+	Logger    *log.Logger
+	ReplySink         pbft.ReplySink
+	PreparedCollector *twopc.PreparedCollector
+	AckCollector         *twopc.AckCollector
+	Disable2PCCommitPhase bool
+	Enable2PC            bool
+	Fault             pbft.FaultConfig
+	DataDir           string // used when Store is nil
+	Addr              string // empty = topology port; "host:0" for tests
 }
 
 // NewReplica constructs a replica with storage and PBFT on the topology port.
 func NewReplica(self config.ServerID, topo *config.Topology, ring *crypto.KeyRing, logger *log.Logger) (*Replica, error) {
 	return NewReplicaWithConfig(ReplicaConfig{
-		Self:    self,
-		Topo:    topo,
-		Ring:    ring,
-		Logger:  logger,
-		DataDir: "data",
+		Self:              self,
+		Topo:              topo,
+		Ring:              ring,
+		Logger:            logger,
+		DataDir:           "data",
+		Enable2PC:         true,
+		PreparedCollector: twopc.NewPreparedCollector(),
+		AckCollector:      twopc.NewAckCollector(),
 	})
 }
 
@@ -93,8 +103,45 @@ func NewReplicaWithConfig(cfg ReplicaConfig) (*Replica, error) {
 	if err != nil {
 		return nil, err
 	}
+	engine.SetFault(cfg.Fault)
+
+	messenger := twopc.NewHubMessenger(r.Hub, cfg.Self)
+	coord := twopc.NewCoordinator(twopc.CoordinatorConfig{
+		Self:         cfg.Self,
+		Topo:         cfg.Topo,
+		Ring:         cfg.Ring,
+		Store:        st,
+		Engine:       engine,
+		Messenger:    messenger,
+		Collector:    cfg.PreparedCollector,
+		AckCollector:       cfg.AckCollector,
+		DisableCommitPhase: cfg.Disable2PCCommitPhase,
+		Logger:             logger,
+	})
+	part := twopc.NewParticipant(twopc.ParticipantConfig{
+		Self:      cfg.Self,
+		Topo:      cfg.Topo,
+		Ring:      cfg.Ring,
+		Store:     st,
+		Engine:    engine,
+		Messenger: messenger,
+		Logger:    logger,
+	})
+	bridge := &twopc.Bridge{Coord: coord, Part: part}
+	if cfg.Enable2PC {
+		engine.SetCrossShardHooks(bridge)
+		r.TwoPC = bridge
+	}
+
 	r.PBFT = engine
 	return r, nil
+}
+
+// SetFault reconfigures Byzantine/crash behaviour at runtime (tests).
+func (r *Replica) SetFault(fc pbft.FaultConfig) {
+	if r.PBFT != nil {
+		r.PBFT.SetFault(fc)
+	}
 }
 
 // NewReplicaOnAddr is a convenience wrapper for tests.
@@ -179,8 +226,40 @@ func (r *Replica) dispatch(ctx context.Context, env *pb.Envelope) {
 			}
 		}
 	default:
+		if transport.Is2PC(env.Type) {
+			r.handle2PC(ctx, env)
+			return
+		}
 		if r.Logger != nil {
 			r.Logger.Printf("unknown message type %q from %d", env.Type, env.SenderId)
+		}
+	}
+}
+
+func (r *Replica) handle2PC(ctx context.Context, env *pb.Envelope) {
+	if r.TwoPC == nil {
+		return
+	}
+	switch env.Type {
+	case transport.Type2PCPrepare:
+		if r.TwoPC.Part != nil {
+			go r.TwoPC.Part.HandlePrepare(ctx, env.Payload)
+		}
+	case transport.Type2PCPrepared, transport.Type2PCAbort:
+		if r.TwoPC.Coord != nil {
+			go r.TwoPC.Coord.HandleParticipantReply(ctx, env.Type, env.Payload)
+		}
+	case transport.Type2PCCommit:
+		if r.TwoPC.Part != nil {
+			go r.TwoPC.Part.HandleCommit(ctx, env.Payload)
+		}
+	case transport.Type2PCAck:
+		if r.TwoPC.Coord != nil {
+			from, err := transport.SenderID(env)
+			if err != nil {
+				return
+			}
+			go r.TwoPC.HandleParticipantAck(ctx, from, env.Payload)
 		}
 	}
 }

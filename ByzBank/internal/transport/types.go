@@ -20,14 +20,50 @@ const (
 	TypePrepareCert   = "PREPARE_CERT"
 	TypeCommit        = "COMMIT"
 	TypeCommitCert    = "COMMIT_CERT"
+	TypeViewChange    = "VIEW_CHANGE"
+	TypeNewView       = "NEW_VIEW"
+	TypeDiscardSeq    = "DISCARD_SEQ"
+
+	Type2PCPrepare  = "2PC_PREPARE"
+	Type2PCPrepared = "2PC_PREPARED"
+	Type2PCAbort    = "2PC_ABORT"
+	Type2PCCommit   = "2PC_COMMIT"
+	Type2PCAck      = "2PC_ACK"
+
+	TypeSetFault        = "SET_FAULT"
+	TypeQueryBalance    = "QUERY_BALANCE"
+	TypeQueryDatastore  = "QUERY_DATASTORE"
+	TypeQueryReply      = "QUERY_REPLY"
+	TypeControlResponse = "CONTROL_RESPONSE"
 )
+
+// Is2PC returns true for cross-shard 2PC inter-cluster messages.
+func Is2PC(typ string) bool {
+	switch typ {
+	case Type2PCPrepare, Type2PCPrepared, Type2PCAbort, Type2PCCommit, Type2PCAck:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsControl returns true for client control/query messages.
+func IsControl(typ string) bool {
+	switch typ {
+	case TypeSetFault, TypeQueryBalance, TypeQueryDatastore, TypeQueryReply, TypeControlResponse:
+		return true
+	default:
+		return false
+	}
+}
 
 // IsPBFT returns true for consensus protocol messages.
 func IsPBFT(typ string) bool {
 	switch typ {
 	case TypeClientRequest, TypeClientReply,
 		TypePrePrepare, TypePrepare, TypePrepareCert,
-		TypeCommit, TypeCommitCert:
+		TypeCommit, TypeCommitCert,
+		TypeViewChange, TypeNewView, TypeDiscardSeq:
 		return true
 	default:
 		return false

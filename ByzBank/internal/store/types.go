@@ -44,6 +44,25 @@ func (e DatastoreEntry) String() string {
 		e.Seq, e.Type, e.X, e.Y, e.Amt, e.Phase, e.Outcome, e.BallotOrViewSeq)
 }
 
+// OracleString formats an entry like simulate.py / check_oracle.py expect.
+func (e DatastoreEntry) OracleString() string {
+	switch e.Type {
+	case TxnIntra:
+		return fmt.Sprintf("INTRA (%d,%d,%d) COMMIT", e.X, e.Y, e.Amt)
+	case TxnCross:
+		switch e.Phase {
+		case PhasePrepare:
+			return fmt.Sprintf("CROSS (%d,%d,%d) PREPARE", e.X, e.Y, e.Amt)
+		case PhaseCommit:
+			if e.Outcome == OutcomeAbort {
+				return fmt.Sprintf("CROSS (%d,%d,%d) COMMIT(ABORT)", e.X, e.Y, e.Amt)
+			}
+			return fmt.Sprintf("CROSS (%d,%d,%d) COMMIT", e.X, e.Y, e.Amt)
+		}
+	}
+	return e.String()
+}
+
 // WALPreimage captures balances before a tentative cross-shard operation so an
 // abort can restore prior state.
 type WALPreimage struct {

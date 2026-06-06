@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -38,7 +39,11 @@ func main() {
 		log.Fatalf("server %s not found in topology (have %d servers)", id, topo.TotalServers())
 	}
 
-	logger := log.New(os.Stdout, fmt.Sprintf("[%s] ", self.ID), log.LstdFlags|log.Lmsgprefix)
+	logOut := io.Discard
+	if os.Getenv("BYZ_DEBUG") != "" {
+		logOut = os.Stdout
+	}
+	logger := log.New(logOut, fmt.Sprintf("[%s] ", self.ID), log.LstdFlags|log.Lmsgprefix)
 
 	ring, err := crypto.LoadOrCreateKeyRing(topo, self.ID, *keysDir)
 	if err != nil {
@@ -61,6 +66,7 @@ func main() {
 	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "OK %s cluster=%s grpc=%s\n", self.ID, self.Cluster, replica.Addr())
 	})
+	replica.RegisterHTTP(healthMux)
 	healthSrv := &http.Server{Addr: healthAddr, Handler: healthMux}
 	go func() {
 		ln, err := net.Listen("tcp", healthAddr)
