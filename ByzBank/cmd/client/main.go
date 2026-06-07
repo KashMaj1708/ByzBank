@@ -11,20 +11,36 @@ import (
 
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/client"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/config"
+	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/smallbank"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/testcase"
 )
 
 func main() {
 	health := flag.Bool("healthcheck", false, "probe every server's /health endpoint and report")
 	testfile := flag.String("testfile", "", "path to Lab4 CSV test file")
+	benchmark := flag.String("benchmark", "", "benchmark to run (smallbank)")
 	auto := flag.Bool("auto", false, "run all sets without interactive menu (for scripting)")
 	verify := flag.String("verify", "", "path to Lab4 *_expected.json oracle; compare after each set")
+	txns := flag.Int("txns", 1000, "SmallBank: number of transactions")
+	skew := flag.Float64("skew", 0.9, "SmallBank: hot-access fraction (0..1)")
+	amt := flag.Int64("amt", 1, "SmallBank: transfer amount per write txn")
 	flag.Parse()
 
 	topo := config.Load()
 
 	if *health {
 		os.Exit(runHealthcheck(topo))
+	}
+
+	if *benchmark == "smallbank" {
+		os.Exit(runSmallBank(topo, smallbank.Config{
+			Txns:              *txns,
+			Amt:               *amt,
+			Skew:              *skew,
+			HotAccessFraction: *skew,
+			Seed:              42,
+			SettleTimeout:     120 * time.Second,
+		}))
 	}
 
 	if *testfile != "" {
@@ -37,6 +53,19 @@ func main() {
 	fmt.Printf("usage:\n")
 	fmt.Printf("  --healthcheck\n")
 	fmt.Printf("  --testfile test/Lab4_Testset_1_36node.csv\n")
+	fmt.Printf("  --benchmark smallbank --txns 1000 --skew 0.9\n")
+}
+
+func runSmallBank(topo config.Topology, cfg smallbank.Config) int {
+	remote := client.NewRemote(&topo)
+	defer remote.Close()
+	driver := smallbank.NewDriver(&topo, remote)
+	ctx := context.Background()
+	if err := driver.Run(ctx, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "smallbank: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runHealthcheck(topo config.Topology) int {

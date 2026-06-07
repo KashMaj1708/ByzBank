@@ -104,52 +104,16 @@ func (r *Remote) SendRequest(ctx context.Context, to config.ServerID, req pbft.R
 	return nil
 }
 
-type catchUpPayload struct {
-	Store  interface{} `json:"store"`
-	Engine interface{} `json:"engine"`
-}
-
-// FetchCatchUpSnapshot downloads committed state from a donor replica.
-func (r *Remote) FetchCatchUpSnapshot(ctx context.Context, from config.ServerID) (catchUpPayload, error) {
-	url, err := r.healthURL(from, "/snapshot")
-	if err != nil {
-		return catchUpPayload{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return catchUpPayload{}, err
-	}
-	resp, err := r.http.Do(req)
-	if err != nil {
-		return catchUpPayload{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return catchUpPayload{}, fmt.Errorf("snapshot %s: %s", from, string(b))
-	}
-	var out catchUpPayload
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return catchUpPayload{}, err
-	}
-	return out, nil
-}
-
-// ApplyCatchUpSnapshot installs donor state on a rejoining replica.
-func (r *Remote) ApplyCatchUpSnapshot(ctx context.Context, to config.ServerID, snap catchUpPayload) error {
-	url, err := r.healthURL(to, "/snapshot")
+// ResetConsensus clears volatile PBFT and 2PC state on one live replica.
+func (r *Remote) ResetConsensus(ctx context.Context, id config.ServerID) error {
+	url, err := r.healthURL(id, "/reset_consensus")
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(snap)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
 	resp, err := r.http.Do(req)
 	if err != nil {
 		return err
@@ -157,18 +121,9 @@ func (r *Remote) ApplyCatchUpSnapshot(ctx context.Context, to config.ServerID, s
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("apply snapshot %s: %s", to, string(b))
+		return fmt.Errorf("reset_consensus %s: %s", id, string(b))
 	}
 	return nil
-}
-
-// SyncFromPrimary copies committed state from the cluster primary to a replica.
-func (r *Remote) SyncFromPrimary(ctx context.Context, replica, primary config.ServerID) error {
-	snap, err := r.FetchCatchUpSnapshot(ctx, primary)
-	if err != nil {
-		return err
-	}
-	return r.ApplyCatchUpSnapshot(ctx, replica, snap)
 }
 
 // DrainReplica waits for pending seq reclaims and execution drain on one replica.

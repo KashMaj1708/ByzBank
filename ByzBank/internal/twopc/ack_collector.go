@@ -19,6 +19,13 @@ func NewAckCollector() *AckCollector {
 	return &AckCollector{acks: make(map[string]map[config.ServerID]struct{})}
 }
 
+// Reset clears all recorded participant acks.
+func (c *AckCollector) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.acks = make(map[string]map[config.ServerID]struct{})
+}
+
 // Record stores one ack from a participant server.
 func (c *AckCollector) Record(req pbft.Request, from config.ServerID) {
 	c.mu.Lock()

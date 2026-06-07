@@ -20,8 +20,6 @@ type Runner struct {
 	Metrics  *Metrics
 	ClientID string
 	nextTS   int64
-	prevLive          map[config.ServerID]bool
-	faultInitialized  bool
 }
 
 // NewRunner constructs a runner for the given topology.
@@ -31,7 +29,6 @@ func NewRunner(topo *config.Topology, remote *client.Remote) *Runner {
 		Remote:   remote,
 		Metrics:  NewMetrics(),
 		ClientID: "lab4-client",
-		prevLive: make(map[config.ServerID]bool),
 	}
 }
 
@@ -63,16 +60,12 @@ func (r *Runner) ApplySetConfig(ctx context.Context, set Set) error {
 		if err := r.Remote.SetFault(ctx, srv.ID, fc); err != nil {
 			return fmt.Errorf("set fault %s: %w", srv.ID, err)
 		}
-		_, nowLive := live[srv.ID]
-		if r.faultInitialized && nowLive && !r.prevLive[srv.ID] {
-			primary := r.Topo.PrimaryOf(srv.Cluster, 0)
-			if err := r.Remote.SyncFromPrimary(ctx, srv.ID, primary); err != nil {
-				return fmt.Errorf("catch-up %s from %s: %w", srv.ID, primary, err)
+		if _, isLive := live[srv.ID]; isLive {
+			if err := r.Remote.ResetConsensus(ctx, srv.ID); err != nil {
+				return fmt.Errorf("reset %s: %w", srv.ID, err)
 			}
 		}
-		r.prevLive[srv.ID] = nowLive
 	}
-	r.faultInitialized = true
 	return nil
 }
 

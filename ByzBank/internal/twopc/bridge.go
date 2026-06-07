@@ -14,6 +14,13 @@ type Bridge struct {
 	Part  *Participant
 }
 
+// Reset clears volatile 2PC state for a fresh test set.
+func (b *Bridge) Reset() {
+	if b.Coord != nil {
+		b.Coord.Reset()
+	}
+}
+
 // HandleClientRequest delegates to the coordinator when applicable.
 func (b *Bridge) HandleClientRequest(ctx context.Context, req pbft.Request) bool {
 	if b.Coord != nil {

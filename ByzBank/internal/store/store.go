@@ -393,6 +393,24 @@ func (s *Store) SetClientTS(clientID string, ts int64) error {
 }
 
 // GetClientTS returns the last executed timestamp for a client (0 if unseen).
+// ClearLocksAndWAL removes in-flight lock and WAL buckets. Safe at a settled set
+// boundary; committed balances and datastore are untouched.
+func (s *Store) ClearLocksAndWAL() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Update(func(tx *bolt.Tx) error {
+		for _, name := range [][]byte{bucketLocks, bucketWAL} {
+			if err := tx.DeleteBucket(name); err != nil && err != bolt.ErrBucketNotFound {
+				return err
+			}
+			if _, err := tx.CreateBucket(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (s *Store) GetClientTS(clientID string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

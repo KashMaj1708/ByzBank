@@ -144,6 +144,22 @@ func (r *Replica) SetFault(fc pbft.FaultConfig) {
 	}
 }
 
+// ResetConsensus clears volatile PBFT and 2PC state for a fresh test set.
+func (r *Replica) ResetConsensus() error {
+	if r.PBFT != nil {
+		r.PBFT.ResetConsensus()
+	}
+	if r.Store != nil {
+		if err := r.Store.ClearLocksAndWAL(); err != nil {
+			return err
+		}
+	}
+	if r.TwoPC != nil {
+		r.TwoPC.Reset()
+	}
+	return nil
+}
+
 // NewReplicaOnAddr is a convenience wrapper for tests.
 func NewReplicaOnAddr(self config.ServerID, topo *config.Topology, ring *crypto.KeyRing, addr string, logger *log.Logger) (*Replica, error) {
 	return NewReplicaWithConfig(ReplicaConfig{

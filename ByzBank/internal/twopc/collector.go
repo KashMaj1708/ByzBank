@@ -19,6 +19,13 @@ func NewPreparedCollector() *PreparedCollector {
 	return &PreparedCollector{}
 }
 
+// Reset clears all recorded participant replies.
+func (c *PreparedCollector) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.certs = nil
+}
+
 // Has reports whether any participant reply was recorded for this client txn.
 func (c *PreparedCollector) Has(req pbft.Request) bool {
 	c.mu.Lock()

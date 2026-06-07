@@ -92,6 +92,22 @@ func (c *Coordinator) ReleaseCrossSlot() {
 	c.crossMu.Unlock()
 }
 
+// Reset clears volatile 2PC coordinator state for a fresh test set.
+func (c *Coordinator) Reset() {
+	c.commitMu.Lock()
+	c.commitStarted = make(map[string]bool)
+	c.commitMu.Unlock()
+	c.crossMu.Lock()
+	c.crossBusy = false
+	c.crossMu.Unlock()
+	if c.collector != nil {
+		c.collector.Reset()
+	}
+	if c.ackColl != nil {
+		c.ackColl.Reset()
+	}
+}
+
 // HandleClientRequest implements pbft.CrossShardHooks.
 func (c *Coordinator) HandleClientRequest(ctx context.Context, req pbft.Request) bool {
 	if c.topo.SameCluster(req.X, req.Y) {
@@ -103,6 +119,13 @@ func (c *Coordinator) HandleClientRequest(ctx context.Context, req pbft.Request)
 	if c.store.GetClientTS(req.ClientID) >= req.TS {
 		return false
 	}
+	key := pbft.TxnID(req)
+	c.commitMu.Lock()
+	if c.commitStarted[key] {
+		c.commitMu.Unlock()
+		return false
+	}
+	c.commitMu.Unlock()
 	if c.engine.ClientTxnInFlight(req) {
 		return false
 	}
@@ -114,6 +137,13 @@ func (c *Coordinator) HandleClientRequest(ctx context.Context, req pbft.Request)
 		c.ReleaseCrossSlot()
 		return false
 	}
+	c.commitMu.Lock()
+	if c.commitStarted[key] {
+		c.commitMu.Unlock()
+		c.ReleaseCrossSlot()
+		return false
+	}
+	c.commitMu.Unlock()
 	if c.store.GetBalance(req.X) < req.Amt {
 		c.ReleaseCrossSlot()
 		return false
@@ -131,10 +161,10 @@ func (c *Coordinator) OnCrossPrepareDropped(context.Context, pbft.Request) {
 
 // OnCoordPrepareExecuted ships the coordinator prepare certificate to the participant cluster.
 func (c *Coordinator) OnCoordPrepareExecuted(ctx context.Context, req pbft.Request, seq int64, cert pbft.CertificateMsg) {
+	c.ReleaseCrossSlot()
 	if c.self != c.primary() {
 		return
 	}
-	c.ReleaseCrossSlot()
 	client := req
 	client.Op = ""
 	msg := CoordinatorPrepareMsg{

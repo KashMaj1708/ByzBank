@@ -336,6 +336,14 @@ func (e *Engine) startConsensus(ctx context.Context, req Request) {
 	msg := PrePrepareMsg{Seq: seq, View: e.view, Digest: digest, Req: req}
 	e.mu.Lock()
 	st := e.ensureSeqLocked(seq)
+	if st.discarded {
+		st.discarded = false
+		st.prepares = make(map[config.ServerID][]byte)
+		st.commits = make(map[config.ServerID][]byte)
+		st.prepareCert = nil
+		st.commitCert = nil
+		st.executed = false
+	}
 	st.digest = digest
 	st.req = req
 	st.prePrepare = true
@@ -424,7 +432,8 @@ func (e *Engine) onPrepare(ctx context.Context, from config.ServerID, msg Prepar
 		return
 	}
 	st.prepares[from] = append([]byte(nil), sig...)
-	ready := len(st.prepares) >= e.prepareCollect
+	nPrepares := len(st.prepares)
+	ready := nPrepares >= e.prepareCollect
 	var cert *CertificateMsg
 	if ready && st.prepareCert == nil {
 		cert = e.buildCertLocked(msg.Seq, st, "PREPARE")
@@ -1185,7 +1194,12 @@ func (e *Engine) reclaimSeq(ctx context.Context, seq int64, req Request) {
 		e.mu.Unlock()
 		return
 	}
-	delete(e.log, seq)
+	st.discarded = true
+	st.prePrepare = false
+	st.prepares = make(map[config.ServerID][]byte)
+	st.commits = make(map[config.ServerID][]byte)
+	st.prepareCert = nil
+	st.commitCert = nil
 	e.mu.Unlock()
 
 	e.releaseLocksForOp(req)
@@ -1214,7 +1228,12 @@ func (e *Engine) onDiscardSeq(ctx context.Context, msg DiscardSeqMsg) {
 		return
 	}
 	req := st.req
-	delete(e.log, msg.Seq)
+	st.discarded = true
+	st.prePrepare = false
+	st.prepares = make(map[config.ServerID][]byte)
+	st.commits = make(map[config.ServerID][]byte)
+	st.prepareCert = nil
+	st.commitCert = nil
 	e.mu.Unlock()
 
 	e.releaseLocksForOp(req)
@@ -1290,38 +1309,28 @@ func (e *Engine) CoordPrepareInFlight() int {
 	return n
 }
 
-// EngineState captures PBFT sequence metadata for catch-up.
-type EngineState struct {
-	View    int   `json:"view"`
-	ExecSeq int64 `json:"exec_seq"`
-	NextSeq int64 `json:"next_seq"`
-}
-
-// ExportState returns view and sequence pointers for state transfer.
-func (e *Engine) ExportState() EngineState {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return EngineState{View: e.view, ExecSeq: e.execSeq, NextSeq: e.nextSeq}
-}
-
-// ResetForCatchUp clears volatile PBFT state and adopts primary sequence metadata.
-func (e *Engine) ResetForCatchUp(st EngineState) {
+// ResetConsensus clears volatile PBFT state for a fresh test set.
+// Durable store state (balances, datastore, client TS) is untouched.
+func (e *Engine) ResetConsensus() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.cancelViewChangeTimerLocked()
-	e.view = st.View
-	e.execSeq = st.ExecSeq
-	if st.NextSeq > st.ExecSeq {
-		e.nextSeq = st.NextSeq
-	} else {
-		e.nextSeq = st.ExecSeq
-	}
+	e.view = 0
+	e.execSeq = 1
+	e.nextSeq = 1
 	e.log = make(map[int64]*seqState)
 	e.inViewChange = false
 	e.viewChangeTarget = 0
 	e.viewChangeSent = make(map[int]bool)
 	e.viewChangeLog = make(map[int]map[config.ServerID]ViewChangeMsg)
+	e.viewChangeReceived = nil
+	e.newViewIssued = make(map[int]bool)
+	e.newViewLog = nil
 	e.pendingClients = make(map[string]Request)
+	e.recentReplies = make(map[string]Reply)
+	if hs, ok := e.sender.(*HubSender); ok {
+		hs.SetView(0)
+	}
 }
 
 // WaitReclaims blocks until async seq-reclaim watchers finish or timeout expires.
