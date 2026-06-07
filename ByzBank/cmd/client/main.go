@@ -39,7 +39,8 @@ func main() {
 			Skew:              *skew,
 			HotAccessFraction: *skew,
 			Seed:              42,
-			SettleTimeout:     120 * time.Second,
+			SettleTimeout:     300 * time.Second,
+			Pace:              25 * time.Millisecond,
 		}))
 	}
 

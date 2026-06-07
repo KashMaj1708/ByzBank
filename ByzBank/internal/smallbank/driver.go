@@ -18,6 +18,7 @@ type Config struct {
 	HotAccessFraction float64
 	Seed              int64
 	SettleTimeout     time.Duration
+	Pace              time.Duration // delay between write submissions (open-loop pacing)
 }
 
 // DefaultConfig returns standard benchmark parameters.
@@ -28,7 +29,8 @@ func DefaultConfig() Config {
 		Skew:              0.9,
 		HotAccessFraction: 0.9,
 		Seed:              42,
-		SettleTimeout:     120 * time.Second,
+		SettleTimeout:     300 * time.Second,
+		Pace:              25 * time.Millisecond,
 	}
 }
 
@@ -127,16 +129,26 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 			continue
 		}
 		sent := time.Now()
+		var last pbft.Request
 		for _, req := range op.Requests {
 			contact := d.contact(d.Topo.ClusterOf(req.X))
 			if err := d.Remote.SendRequest(ctx, contact, req); err != nil {
 				return fmt.Errorf("send %s: %w", op.Kind, err)
 			}
+			if len(op.Requests) > 1 {
+				if !d.waitCommitted(ctx, req, cfg.SettleTimeout) {
+					last = req
+					break
+				}
+			}
+			last = req
 		}
-		last := op.Requests[len(op.Requests)-1]
 		meta = append(meta, opMeta{op: op, sentAt: sent, lastReq: last})
 		if op.Penalty {
 			d.Metrics.AddPenalty(d.Schema.PenaltyAmount)
+		}
+		if cfg.Pace > 0 {
+			time.Sleep(cfg.Pace)
 		}
 	}
 
@@ -180,6 +192,34 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		})
 	}
 
+	// Drain stragglers so conservation sees a quiescent ledger.
+	drainUntil := time.Now().Add(90 * time.Second)
+	for time.Now().Before(drainUntil) {
+		pending := false
+		for i := range meta {
+			if meta[i].done {
+				continue
+			}
+			if d.collectReply(ctx, meta[i].lastReq) {
+				d.Metrics.Record(Record{
+					Kind:       meta[i].op.Kind,
+					CrossShard: meta[i].op.CrossShard,
+					Committed:  true,
+					SentAt:     meta[i].sentAt,
+					RepliedAt:  time.Now(),
+					Latency:    time.Since(meta[i].sentAt),
+				})
+				meta[i].done = true
+				continue
+			}
+			pending = true
+		}
+		if !pending {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	final, err := SumBalances(ctx, d.Remote, d.Topo, d.Schema)
 	if err != nil {
 		return fmt.Errorf("final sum: %w", err)
@@ -205,30 +245,40 @@ func (d *Driver) fundTreasury(ctx context.Context) error {
 			if err := d.Remote.SendRequest(ctx, contact, req); err != nil {
 				return err
 			}
-			deadline := time.Now().Add(10 * time.Second)
-			for time.Now().Before(deadline) {
-				if d.collectReply(ctx, req) {
-					break
-				}
-				time.Sleep(50 * time.Millisecond)
-			}
+			_ = d.waitCommitted(ctx, req, 30*time.Second)
 		}
 	}
 	return nil
 }
 
-func (d *Driver) collectReply(ctx context.Context, req pbft.Request) bool {
+func (d *Driver) collectResult(ctx context.Context, req pbft.Request) (result string, ok bool) {
 	cluster := d.Topo.ClusterOf(req.X)
 	matches := make(map[string]int)
 	for _, srv := range d.Topo.ServersInCluster(cluster) {
-		reply, ok, err := d.Remote.LookupReply(ctx, srv.ID, req)
-		if err != nil || !ok {
+		reply, found, err := d.Remote.LookupReply(ctx, srv.ID, req)
+		if err != nil || !found {
 			continue
 		}
 		matches[reply.Result]++
 		if matches[reply.Result] >= d.Topo.ClientQuorum() {
-			return reply.Result == "committed"
+			return reply.Result, true
 		}
+	}
+	return "", false
+}
+
+func (d *Driver) collectReply(ctx context.Context, req pbft.Request) bool {
+	result, ok := d.collectResult(ctx, req)
+	return ok && result == "committed"
+}
+
+func (d *Driver) waitCommitted(ctx context.Context, req pbft.Request, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if d.collectReply(ctx, req) {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	return false
 }
