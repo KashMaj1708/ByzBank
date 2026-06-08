@@ -19,18 +19,20 @@ type Config struct {
 	Seed              int64
 	SettleTimeout     time.Duration
 	Pace              time.Duration // delay between write submissions (open-loop pacing)
+	ShowProgress      bool          // stderr progress bar during benchmark
 }
 
 // DefaultConfig returns standard benchmark parameters.
 func DefaultConfig() Config {
 	return Config{
 		Txns:              1000,
-		Amt:               1,
+		Amt:               100,
 		Skew:              0.9,
 		HotAccessFraction: 0.9,
 		Seed:              42,
 		SettleTimeout:     300 * time.Second,
 		Pace:              25 * time.Millisecond,
+		ShowProgress:      true,
 	}
 }
 
@@ -102,7 +104,11 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 	}
 	meta := make([]opMeta, 0, cfg.Txns)
 
-	if err := d.fundTreasury(ctx); err != nil {
+	var submitBar, settleBar *progressBar
+	if cfg.ShowProgress {
+		submitBar = newProgressBar("submit", cfg.Txns)
+	}
+	if err := d.fundTreasury(ctx, cfg.ShowProgress); err != nil {
 		return fmt.Errorf("fund treasury: %w", err)
 	}
 
@@ -126,6 +132,9 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 				RepliedAt: time.Now(),
 				Latency:   time.Since(sent),
 			})
+			if submitBar != nil {
+				submitBar.update(i+1, op.Kind.String())
+			}
 			continue
 		}
 		sent := time.Now()
@@ -150,13 +159,24 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		if cfg.Pace > 0 {
 			time.Sleep(cfg.Pace)
 		}
+		if submitBar != nil {
+			submitBar.update(i+1, op.Kind.String())
+		}
+	}
+	if submitBar != nil {
+		submitBar.finish("done")
 	}
 
+	if cfg.ShowProgress {
+		settleBar = newProgressBar("settle", len(meta))
+	}
 	deadline := time.Now().Add(cfg.SettleTimeout)
 	for time.Now().Before(deadline) {
 		allDone := true
+		committed := 0
 		for i := range meta {
 			if meta[i].done {
+				committed++
 				continue
 			}
 			if d.collectReply(ctx, meta[i].lastReq) {
@@ -169,14 +189,21 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 					Latency:    time.Since(meta[i].sentAt),
 				})
 				meta[i].done = true
+				committed++
 				continue
 			}
 			allDone = false
+		}
+		if settleBar != nil {
+			settleBar.update(committed, fmt.Sprintf("%d pending", len(meta)-committed))
 		}
 		if allDone {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+	if settleBar != nil {
+		settleBar.finish("done")
 	}
 
 	for _, m := range meta {
@@ -192,12 +219,18 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		})
 	}
 
-	// Drain stragglers so conservation sees a quiescent ledger.
+	// Drain stragglers, then wait for a stable global sum before conservation check.
+	var drainBar *progressBar
+	if cfg.ShowProgress {
+		drainBar = newProgressBar("drain", len(meta))
+	}
 	drainUntil := time.Now().Add(90 * time.Second)
 	for time.Now().Before(drainUntil) {
 		pending := false
+		committed := 0
 		for i := range meta {
 			if meta[i].done {
+				committed++
 				continue
 			}
 			if d.collectReply(ctx, meta[i].lastReq) {
@@ -210,14 +243,27 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 					Latency:    time.Since(meta[i].sentAt),
 				})
 				meta[i].done = true
+				committed++
 				continue
 			}
 			pending = true
+		}
+		if drainBar != nil {
+			drainBar.update(committed, fmt.Sprintf("%d pending", len(meta)-committed))
 		}
 		if !pending {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if drainBar != nil {
+		drainBar.finish("done")
+	}
+	if cfg.ShowProgress {
+		newProgressBar("quiesce", 1).message("waiting for stable ledger sum...")
+	}
+	if err := WaitLedgerStable(ctx, d.Remote, d.Topo, d.Schema, 5*time.Second, 120*time.Second); err != nil {
+		return fmt.Errorf("quiescence: %w", err)
 	}
 
 	final, err := SumBalances(ctx, d.Remote, d.Topo, d.Schema)
@@ -225,6 +271,10 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("final sum: %w", err)
 	}
 	if err := CheckConservation(initial, final, d.Metrics.Penalties()); err != nil {
+		perCluster, _, derr := SumBalancesByCluster(ctx, d.Remote, d.Topo, d.Schema)
+		if derr == nil {
+			return fmt.Errorf("%w; per-cluster=%v", err, perCluster)
+		}
 		return err
 	}
 	fmt.Printf("Conservation: OK (initial=%d final=%d penalties=%d)\n", initial, final, d.Metrics.Penalties())
@@ -232,8 +282,14 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-func (d *Driver) fundTreasury(ctx context.Context) error {
+func (d *Driver) fundTreasury(ctx context.Context, showProgress bool) error {
 	// Seed each cluster treasury from early customers so DepositChecking can run.
+	total := d.Topo.NumClusters * 5
+	var bar *progressBar
+	if showProgress {
+		bar = newProgressBar("fund", total)
+	}
+	done := 0
 	for cluster := 1; cluster <= d.Topo.NumClusters; cluster++ {
 		cid := config.ClusterID(cluster)
 		treasury := d.Schema.TreasuryItem(cid)
@@ -246,7 +302,14 @@ func (d *Driver) fundTreasury(ctx context.Context) error {
 				return err
 			}
 			_ = d.waitCommitted(ctx, req, 30*time.Second)
+			done++
+			if bar != nil {
+				bar.update(done, fmt.Sprintf("cluster %d", cluster))
+			}
 		}
+	}
+	if bar != nil {
+		bar.finish("done")
 	}
 	return nil
 }

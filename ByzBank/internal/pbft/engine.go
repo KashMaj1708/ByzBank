@@ -630,16 +630,18 @@ func (e *Engine) executeCoordPrepare(ctx context.Context, req Request, seq int64
 
 func (e *Engine) executePartPrepare(ctx context.Context, req Request, seq int64, cert CertificateMsg, outcome store.Outcome) {
 	if outcome == store.OutcomeCommit {
-		oldBal := e.store.GetBalance(req.Y)
-		if err := e.store.ApplyCreditOnly(req.Y, req.Amt); err != nil {
-			if e.logger != nil {
-				e.logger.Printf("part prepare seq=%d failed: %v", seq, err)
-			}
-			e.store.ReleaseLock(req.Y)
-			return
-		}
 		txnID := TxnID(req)
-		_ = e.store.WALWrite(txnID, store.NewWALPreimage(map[int]int64{req.Y: oldBal}))
+		if !e.store.WALExists(txnID) {
+			oldBal := e.store.GetBalance(req.Y)
+			if err := e.store.ApplyCreditOnly(req.Y, req.Amt); err != nil {
+				if e.logger != nil {
+					e.logger.Printf("part prepare seq=%d failed: %v", seq, err)
+				}
+				e.store.ReleaseLock(req.Y)
+				return
+			}
+			_ = e.store.WALWrite(txnID, store.NewWALPreimage(map[int]int64{req.Y: oldBal}))
+		}
 	}
 	_ = e.store.AppendDatastore(store.DatastoreEntry{
 		Type:            store.TxnCross,

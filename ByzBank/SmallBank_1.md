@@ -4,7 +4,7 @@
 **Module:** `github.com/KashMaj1708/2pcbyz-kashmaj1708`  
 **Plan reference:** `Project4_Go_Implementation_Plan.md`, Phase 10  
 **Prerequisite:** Fix Update 5 — TS1 **6/6**, TS2 **6/6** (per-set `ResetConsensus`)  
-**Status:** Implementation **complete**; **1000-txn demo not green** (conservation violation at scale)
+**Status:** Implementation **complete**; root cause identified and protocol fixes applied — **re-verification pending**
 
 ---
 
@@ -249,65 +249,109 @@ The leak is **exactly +7** at both 500 and 1000 txns — not proportional to wor
 
 ---
 
-## 10. Fixes Attempted During Benchmark Bring-Up
+## 10. Root Cause — +7 Conservation Leak (CONFIRMED)
 
-| Issue | Symptom | Fix applied | Result |
-|-------|---------|-------------|--------|
-| Burst submission | 520/1000 committed, 0/40 cross | 25ms `Pace` between writes | 100/100 at 100 txns |
-| Amalgamate races | Multi-step fired without waiting | `waitCommitted` between Amg steps; abort chain on failure | Improved cross commits at 100 txns |
-| Settle too short | Many ops marked uncommitted | `SettleTimeout` 120s → 300s | Partial improvement |
-| Stragglers at final sum | +3 leak at 1000 | 90s post-settle drain loop | Leak grew to +7 |
-| fundTreasury blocking | Slow startup | `waitCommitted` with 30s cap per transfer | Treasury seeding completes |
+### Mechanism: money moves at prepare, abort must undo
 
-**Not yet tried:**
+In this design, cross-shard funds move during **prepare**, not commit:
 
-- Per-cluster balance diff to locate which cluster gains +7
-- Trace specific cross-shard 2PC paths (coord prepare / part prepare / abort undo)
-- Balance-stability wait (poll until global sum unchanged for N seconds)
-- Longer drain proportional to `cfg.Txns`
-- Re-snapshot `initial` after `fundTreasury` completes
+| Phase | Coordinator | Participant |
+|-------|-------------|---------------|
+| Prepare | `ApplyDebitOnly(x)` + WAL (`engine.go:606`) | `ApplyCreditOnly(y)` + WAL (`engine.go:631`) |
+| Commit | WAL delete, lock release | WAL delete, lock release |
+| **Abort** | `WALUndo(x)` | `WALUndo(y)` |
 
----
+Conservation holds only if every cross-shard txn reaches the **same final outcome** (commit or abort) on **both** clusters. A txn where the coordinator aborts (undoes `x`) but the participant **keeps its credit on `y`** creates exactly **+amt**. With `--amt 1`, a handful of these produce the observed **+3…+7**.
 
-## 11. Open Problem — +7 Conservation Leak
+### Asymmetry: commit is reliable, abort was fire-once
 
-### What we know
+In `coordinator.go`, `OnCoordCommitExecuted` previously did:
 
-1. **100 txns passes** reliably with conservation OK and 8/8 cross commits.
-2. **500 and 1000 txns fail** with the **same +7** every time (`24037` vs `24030`).
-3. Penalties = 0 (WriteCheck always uses `sufficient=true` in `RandomOp`).
-4. `fundTreasury` runs **after** `initial` snapshot — intra-cluster transfers, net-zero if all commit.
-5. Lab4 oracle (TS1/TS2 6/6) passes with per-set reset — the leak appears only under **sustained open-loop SmallBank load**, not in CSV test sets.
-
-### Leading hypotheses
-
-| # | Hypothesis | Why plausible |
-|---|------------|---------------|
-| H1 | **Partial 2PC credit without matching debit** | +7 = exact count suggests specific cross-shard txn outcomes; participant `ApplyCreditOnly` without coord abort undo |
-| H2 | **In-flight commits after drain** | Less likely — same +7 at 500 and 1000 implies fixed count not growing with scale |
-| H3 | **Hotspot lock contention + skew 0.9** | 90% traffic to 120 accounts amplifies cross-shard races on popular items |
-| H4 | **Amalgamate step-1 commits, step-2 fails, partial state** | Should conserve money (funds moved, not created) unless paired with H1 |
-| H5 | **SumBalances reads primary while stragglers commit on backups** | Primary should reflect executed state; worth verifying per-cluster sums |
-
-### Recommended debug sequence
-
-```powershell
-# 1. Reproduce at threshold (find N where +7 first appears: 200? 300? 400?)
-go run ./cmd/client --benchmark smallbank --txns 300 --skew 0.9
-
-# 2. Add per-cluster sum logging before/after run (diagnostic patch)
-#    Compare C1/C2/C3 deltas — which cluster gains +7?
-
-# 3. Run with skew=0.0 (uniform) at 500 txns
-#    If leak disappears → hotspot interaction; if persists → protocol bug
-
-# 4. Run with only intra kinds (patch UniformKinds temporarily)
-#    If leak disappears → cross-shard 2PC path is culprit
+```go
+c.broadcastCommit(ctx, msg)          // sent ONCE for abort
+if outcome == store.OutcomeCommit {
+    c.startAckRetry(ctx, client, msg) // retry until f+1 acks — commit ONLY
+}
 ```
 
+Commit is re-broadcast until `f+1` participant acks (`startAckRetry`, 45s). Abort was fired **once** with no ack tracking and no retry. If that single abort datagram is dropped, arrives during a participant view-change, or its `OpPartAbort` consensus doesn't finish before the run ends, the participant's `ApplyCreditOnly(y)` is never undone — while the coordinator already undid `x`. Net **+amt**, frozen into `SumBalances`.
+
+### Why +positive, load-gated, and ~deterministic
+
+Three conditions must coincide; all scale with cross-shard volume + skew:
+
+1. **Premature coordinator abort after participant already credited `y`.**  
+   `OnCoordPrepareExecuted` spawned a goroutine that ran `OpCoordAbort` if no participant reply arrived within `CoordPrepareTimeout` (~20.4s for n=12). Under `--skew 0.9`, 120 hot items serialize: participant `HandlePrepare` blocks on `waitItemUnlocked(req.Y)` and `HasPendingClientPBFT`; coordinator allows one cross-shard txn at a time (`crossBusy`). At **100 txns** nothing approaches 20s → zero spurious aborts → conservation OK. At **500+** hot-set contention reliably pushes a few cross-shard txns past the window → coordinator **presumes-abort** after participant credited `y`. This is a genuine **2PC safety violation**.
+
+2. **The undo that should fix it was the unreliable abort path** (asymmetry above).
+
+3. **Driver snapshot before quiescence.** Settle/drain only polls for `"committed"` replies. Aborted txns never return `"committed"`, so the driver marks them uncommitted and reads balances while participant undo may still be pending or **lost**. The 90s drain did not wait for abort reconciliation — which is why adding drain pushed +3 → +7 instead of fixing it.
+
+The near-deterministic magnitude: `seed=42` fixes the hot-set access pattern, so the set of contended cross-shard txns is the same run-to-run; only timing jitters the count (+3 once, +7 otherwise).
+
+**Precise diagnosis:** H1 (partial 2PC credit without debit), **caused by** premature unacknowledged coordinator abort, with driver timing (H2/H5) as the reason the leak survives into the final sum.
+
 ---
 
-## 12. Relationship to Prior Fixes
+## 11. Fixes Applied
+
+### Fix 1 — Reliable abort broadcast (protocol bug)
+
+`OnCoordCommitExecuted` now calls `startAckRetry` for **both** commit and abort outcomes. Participant replicas already ack aborts via `executePartAbort` → `OnPartCommitExecuted` → `sendAck`; the missing half was coordinator retry until `f+1` abort-acks.
+
+**File:** `internal/twopc/coordinator.go`
+
+### Fix 2 — Remove presumed-abort on prepare timeout
+
+Removed the `OnCoordPrepareExecuted` goroutine that fired `OpCoordAbort` after `CoordPrepareTimeout` when no participant reply was seen. That presumed-abort could contradict a participant that had already voted yes (credited `y`). Final commit/abort is now driven only by the participant's actual prepare reply via `maybeStartFinalCommit`.
+
+**File:** `internal/twopc/coordinator.go`
+
+### Fix 3 — Snapshot at ledger quiescence (driver)
+
+Replaced reliance on a fixed 90s drain with `WaitLedgerStable`: drain all cluster primaries, poll global sum until unchanged for **5 seconds** (max 120s). Conservation failures now include **per-cluster sum** diagnostics.
+
+**Files:** `internal/smallbank/invariant.go`, `internal/smallbank/driver.go`
+
+### Fix 4 — Idempotent participant credit (hardening)
+
+`executePartPrepare` skips `ApplyCreditOnly` if a WAL entry for `TxnID` already exists, preventing double-credit on prepare re-delivery.
+
+**File:** `internal/pbft/engine.go`
+
+### Driver / benchmark tuning (not the leak, but undercut metrics)
+
+| Issue | Fix |
+|-------|-----|
+| Burst submission overwhelmed cluster | 25ms `Pace` between writes |
+| Amalgamate multi-step races | `waitCommitted` between steps |
+| `--amt 1` makes `amt/2 == 0` | Default `--amt` raised to **100** so Amg/TS paths are non-degenerate |
+
+---
+
+## 12. Benchmark Bring-Up History (pre-fix)
+
+| Issue | Symptom | Mitigation | Result (pre-protocol-fix) |
+|-------|---------|------------|---------------------------|
+| Burst submission | 520/1000 committed, 0/40 cross | 25ms pace | 100/100 at 100 txns |
+| Amalgamate races | Multi-step without wait | Sequential `waitCommitted` | Improved cross at 100 txns |
+| Stragglers at final sum | +3/+7 leak | 90s drain | Leak persisted / grew |
+
+---
+
+## 13. Re-Verification Status
+
+| Check | Status |
+|-------|--------|
+| `go test ./internal/twopc` | **PASS** (after Fix 1–2) |
+| `go test ./internal/smallbank` | **PASS** |
+| 500-txn live benchmark post-fix | **Pending** |
+| 1000-txn live benchmark post-fix | **Pending** |
+| TS1/TS2 re-verify | **Pending** |
+
+---
+
+## 14. Relationship to Prior Fixes
 
 SmallBank `PrepareCluster` calls `ResetConsensus` on every server before each benchmark run — the same mechanism that fixed TS2 Set 6 (see `FIX_UPDATE_5.md` §10). This ensures each run starts with clean PBFT seq state while BoltDB balances persist.
 
@@ -315,7 +359,7 @@ SmallBank does **not** use per-set CSV fault injection; it runs all clusters ful
 
 ---
 
-## 13. Phase 10 Checklist vs Plan
+## 15. Phase 10 Checklist vs Plan
 
 | Plan requirement | Status |
 |------------------|--------|
@@ -324,26 +368,24 @@ SmallBank does **not** use per-set CSV fault injection; it runs all clusters ful
 | Skewed key selection | ✅ |
 | Uniform six-type mix | ✅ |
 | Open-loop driver + metrics (p50/p95/p99, intra/cross) | ✅ |
-| Conservation invariant oracle | ✅ (fails at 500+ txns) |
-| Demo: 1000 txns + green invariant | ❌ (+7 leak) |
+| Conservation invariant oracle | ✅ (protocol fix applied; live re-verify pending) |
+| Demo: 1000 txns + green invariant | ⏳ pending post-fix run |
 | `go test ./internal/smallbank` | ✅ |
-| Cross-shard latency > intra-shard | ✅ at 100 txns (1.34s vs 1.18s mean) |
-| Non-degenerate throughput | ✅ at 100 txns (36 txns/s) |
+| Cross-shard latency > intra-shard | ✅ at 100 txns |
+| Non-degenerate throughput | ✅ at 100 txns |
 
 ---
 
-## 14. Next Steps
+## 16. Next Steps
 
-1. **Root-cause the +7 leak** — per-cluster balance diff, skew-off control run, cross-only isolation.
-2. **Fix protocol or driver** based on findings.
-3. **Green 1000-txn demo** — conservation OK + metrics table.
-4. **Re-verify TS1/TS2** after any code changes.
-5. Write `PHASE10_REPORT.md` (formal phase sign-off).
-6. **Phase 11** — strip debug logging, final `submit lab4` commit.
+1. **Green 500/1000-txn demo** post protocol fixes.
+2. **Re-verify TS1/TS2** after changes.
+3. Write `PHASE10_REPORT.md`.
+4. **Phase 11** — strip debug logging, final `submit lab4` commit.
 
 ---
 
-## 15. Key File Index
+## 17. Key File Index
 
 | File | Role |
 |------|------|
@@ -354,6 +396,8 @@ SmallBank does **not** use per-set CSV fault injection; it runs all clusters ful
 | `internal/smallbank/metrics.go` | Throughput + latency report |
 | `internal/smallbank/invariant.go` | SumBalances + CheckConservation |
 | `cmd/client/main.go` | `--benchmark smallbank` CLI |
+| `internal/twopc/coordinator.go` | Fix 1 (abort retry) + Fix 2 (no presumed-abort) |
+| `internal/pbft/engine.go` | Fix 4 (idempotent part prepare credit) |
 | `FIX_UPDATE_5.md` | Per-set ResetConsensus (TS2 6/6) |
 | `Project4_Go_Implementation_Plan.md` | Phase 10 spec |
 

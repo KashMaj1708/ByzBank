@@ -179,40 +179,6 @@ func (c *Coordinator) OnCoordPrepareExecuted(ctx context.Context, req pbft.Reque
 	env := transport.NewEnvelope(c.self, transport.Type2PCPrepare, payload)
 	partCluster := c.topo.ClusterOf(req.Y)
 	_ = SendToCluster(ctx, c.topo, c.msg, partCluster, env)
-
-	if !c.commitPhaseDisabled {
-		timers := pbft.DefaultTunables(*c.topo)
-		go func() {
-			deadline := time.Now().Add(timers.CoordPrepareTimeout)
-			key := pbft.TxnID(req)
-			for time.Now().Before(deadline) {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-				if c.collector != nil && c.collector.Has(req) {
-					return
-				}
-				time.Sleep(timers.SettlePollInterval)
-			}
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			c.commitMu.Lock()
-			if c.commitStarted[key] {
-				c.commitMu.Unlock()
-				return
-			}
-			c.commitStarted[key] = true
-			c.commitMu.Unlock()
-			abort := req
-			abort.Op = pbft.OpCoordAbort
-			c.engine.StartConsensus(ctx, abort)
-		}()
-	}
 }
 
 // OnPartPrepareExecuted is unused on the coordinator.
@@ -274,9 +240,8 @@ func (c *Coordinator) OnCoordCommitExecuted(ctx context.Context, req pbft.Reques
 		CoordSeq:   seq,
 	}
 	c.broadcastCommit(ctx, msg)
-	if outcome == store.OutcomeCommit {
-		c.startAckRetry(ctx, client, msg)
-	}
+	// Retry commit and abort until f+1 participant acks — abort was previously fire-once.
+	c.startAckRetry(ctx, client, msg)
 }
 
 func (c *Coordinator) broadcastCommit(ctx context.Context, msg CoordinatorCommitMsg) {
