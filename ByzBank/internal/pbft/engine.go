@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	resultCommitted = "committed"
-	resultAbort     = "abort"
+	resultCommitted    = ResultCommitted
+	resultAbort        = ResultAbort
+	resultInsufficient = ResultInsufficient
 )
 
 // Sender sends signed envelopes to peers.
@@ -308,6 +309,7 @@ func (e *Engine) startConsensus(ctx context.Context, req Request) {
 		e.proposalMu.Lock()
 		defer e.proposalMu.Unlock()
 		if !e.validateForStartQuick(req) {
+			e.maybeRejectInsufficient(ctx, req, isPrimary)
 			e.dropCrossPrepare(ctx, req)
 			return
 		}
@@ -315,6 +317,7 @@ func (e *Engine) startConsensus(ctx context.Context, req Request) {
 		e.proposalMu.Lock()
 		defer e.proposalMu.Unlock()
 		if !e.validateForStartQuick(req) {
+			e.maybeRejectInsufficient(ctx, req, isPrimary)
 			e.dropCrossPrepare(ctx, req)
 			return
 		}
@@ -398,6 +401,9 @@ func (e *Engine) processPrePrepare(ctx context.Context, msg PrePrepareMsg) {
 		return
 	}
 	if !e.validateRequest(msg.Req, msg.Seq) {
+		if e.sender.Primary() == e.self && e.insufficientBalance(msg.Req) {
+			e.sendClientReject(ctx, msg.Req, msg.Seq, resultInsufficient)
+		}
 		return
 	}
 	if isCommitPhaseOp(msg.Req.Op) {
@@ -1385,6 +1391,44 @@ func (e *Engine) broadcastDiscardSeq(ctx context.Context, msg DiscardSeqMsg) err
 	env := transport.NewEnvelope(e.self, transport.TypeDiscardSeq, payload)
 	e.sender.Sign(env)
 	return e.sender.BroadcastCluster(ctx, env)
+}
+
+func (e *Engine) insufficientBalance(req Request) bool {
+	op := req.Op
+	if op == "" {
+		op = OpIntra
+	}
+	if op == OpIntra || op == OpCoordPrepare {
+		return e.store.GetBalance(req.X) < req.Amt
+	}
+	return false
+}
+
+func (e *Engine) maybeRejectInsufficient(ctx context.Context, req Request, isPrimary bool) {
+	if !isPrimary || !e.insufficientBalance(req) {
+		return
+	}
+	e.sendClientReject(ctx, req, 0, resultInsufficient)
+}
+
+// RejectInsufficient records a fast client reply for insufficient balance on the primary.
+func (e *Engine) RejectInsufficient(ctx context.Context, req Request) {
+	if e.sender.Primary() != e.self {
+		return
+	}
+	e.sendClientReject(ctx, req, 0, resultInsufficient)
+}
+
+func (e *Engine) sendClientReject(ctx context.Context, req Request, seq int64, result string) {
+	e.sendClientReply(ctx, Reply{
+		ClientID: req.ClientID,
+		TS:       req.TS,
+		Seq:      seq,
+		X:        req.X,
+		Y:        req.Y,
+		Amt:      req.Amt,
+		Result:   result,
+	})
 }
 
 func (e *Engine) sendClientReply(ctx context.Context, reply Reply) {

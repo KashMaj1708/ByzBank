@@ -50,18 +50,17 @@ func (p *progressBar) update(done int, note string) {
 	if note != "" {
 		line += " " + note
 	}
-	// Pad to overwrite prior longer lines (e.g. changing note text).
 	if len(line) < 100 {
 		line += strings.Repeat(" ", 100-len(line))
 	}
 	fmt.Fprintf(p.out, "\r%s", line)
 }
 
-func (p *progressBar) finish(note string) {
+func (p *progressBar) finish(done int, note string) {
 	if p == nil || p.closed {
 		return
 	}
-	p.update(p.total, note)
+	p.update(done, note)
 	fmt.Fprintln(p.out)
 	p.closed = true
 }

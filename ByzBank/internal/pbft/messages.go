@@ -28,6 +28,13 @@ type Request struct {
 	Op       string `json:"op,omitempty"`
 }
 
+// Client reply result strings.
+const (
+	ResultCommitted    = "committed"
+	ResultAbort        = "abort"
+	ResultInsufficient = "insufficient"
+)
+
 // Reply is sent to the client after execution.
 type Reply struct {
 	ClientID string `json:"client_id"`
@@ -36,7 +43,7 @@ type Reply struct {
 	X        int    `json:"x"`
 	Y        int    `json:"y"`
 	Amt      int64  `json:"amt"`
-	Result   string `json:"result"` // "committed"
+	Result   string `json:"result"`
 }
 
 // DiscardSeqMsg tells replicas to drop an abandoned sequence slot.

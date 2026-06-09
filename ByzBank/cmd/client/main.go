@@ -23,7 +23,7 @@ func main() {
 	verify := flag.String("verify", "", "path to Lab4 *_expected.json oracle; compare after each set")
 	txns := flag.Int("txns", 1000, "SmallBank: number of transactions")
 	skew := flag.Float64("skew", 0.9, "SmallBank: hot-access fraction (0..1)")
-	amt := flag.Int64("amt", 100, "SmallBank: transfer amount per write txn")
+	amt := flag.Int64("amt", 2, "SmallBank: transfer amount per write txn")
 	flag.Parse()
 
 	topo := config.Load()
@@ -40,6 +40,7 @@ func main() {
 			HotAccessFraction: *skew,
 			Seed:              42,
 			SettleTimeout:     300 * time.Second,
+			MultiStepTimeout:  10 * time.Second,
 			Pace:              25 * time.Millisecond,
 			ShowProgress:      true,
 		}))

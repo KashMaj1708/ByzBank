@@ -146,7 +146,8 @@ func (c *Coordinator) HandleClientRequest(ctx context.Context, req pbft.Request)
 	c.commitMu.Unlock()
 	if c.store.GetBalance(req.X) < req.Amt {
 		c.ReleaseCrossSlot()
-		return false
+		c.engine.RejectInsufficient(ctx, req)
+		return true
 	}
 	prep := req
 	prep.Op = pbft.OpCoordPrepare

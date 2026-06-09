@@ -18,6 +18,7 @@ type Config struct {
 	HotAccessFraction float64
 	Seed              int64
 	SettleTimeout     time.Duration
+	MultiStepTimeout  time.Duration // inter-step wait for multi-request ops (e.g. Amg)
 	Pace              time.Duration // delay between write submissions (open-loop pacing)
 	ShowProgress      bool          // stderr progress bar during benchmark
 }
@@ -26,11 +27,12 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Txns:              1000,
-		Amt:               100,
+		Amt:               2,
 		Skew:              0.9,
 		HotAccessFraction: 0.9,
 		Seed:              42,
 		SettleTimeout:     300 * time.Second,
+		MultiStepTimeout:  10 * time.Second,
 		Pace:              25 * time.Millisecond,
 		ShowProgress:      true,
 	}
@@ -80,6 +82,23 @@ func (d *Driver) contact(cluster config.ClusterID) config.ServerID {
 	return d.Topo.PrimaryOf(cluster, 0)
 }
 
+type opMeta struct {
+	op      Op
+	sentAt  time.Time
+	lastReq pbft.Request
+	done    bool
+}
+
+func countDone(meta []opMeta) int {
+	n := 0
+	for _, m := range meta {
+		if m.done {
+			n++
+		}
+	}
+	return n
+}
+
 // Run executes the workload and waits for replies to settle.
 func (d *Driver) Run(ctx context.Context, cfg Config) error {
 	if err := d.PrepareCluster(ctx); err != nil {
@@ -94,14 +113,19 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 	if hotAccess <= 0 {
 		hotAccess = cfg.HotAccessFraction
 	}
-	picker := NewPicker(d.Schema.TotalCustomers(), 0.1, hotAccess, cfg.Seed)
-	kinds := UniformKinds()
-	type opMeta struct {
-		op      Op
-		sentAt  time.Time
-		lastReq pbft.Request
-		done    bool
+	picker := NewPicker(
+		d.Schema.TotalCustomers(),
+		d.Topo.NumClusters,
+		d.Schema.CustomersPerCluster,
+		0.1,
+		hotAccess,
+		cfg.Seed,
+	)
+	multiStep := cfg.MultiStepTimeout
+	if multiStep <= 0 {
+		multiStep = 10 * time.Second
 	}
+	kinds := UniformKinds()
 	meta := make([]opMeta, 0, cfg.Txns)
 
 	var submitBar, settleBar *progressBar
@@ -145,10 +169,12 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 				return fmt.Errorf("send %s: %w", op.Kind, err)
 			}
 			if len(op.Requests) > 1 {
-				if !d.waitCommitted(ctx, req, cfg.SettleTimeout) {
-					last = req
+				result, ok := d.waitResult(ctx, req, multiStep)
+				last = req
+				if !ok || result != pbft.ResultCommitted {
 					break
 				}
+				continue
 			}
 			last = req
 		}
@@ -164,38 +190,29 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		}
 	}
 	if submitBar != nil {
-		submitBar.finish("done")
+		submitBar.finish(cfg.Txns, "done")
 	}
 
 	if cfg.ShowProgress {
-		settleBar = newProgressBar("settle", len(meta))
+		settleBar = newProgressBar("writes", len(meta))
 	}
 	deadline := time.Now().Add(cfg.SettleTimeout)
 	for time.Now().Before(deadline) {
 		allDone := true
-		committed := 0
+		resolved := 0
 		for i := range meta {
 			if meta[i].done {
-				committed++
+				resolved++
 				continue
 			}
-			if d.collectReply(ctx, meta[i].lastReq) {
-				d.Metrics.Record(Record{
-					Kind:       meta[i].op.Kind,
-					CrossShard: meta[i].op.CrossShard,
-					Committed:  true,
-					SentAt:     meta[i].sentAt,
-					RepliedAt:  time.Now(),
-					Latency:    time.Since(meta[i].sentAt),
-				})
-				meta[i].done = true
-				committed++
+			if d.tryResolve(ctx, &meta[i]) {
+				resolved++
 				continue
 			}
 			allDone = false
 		}
 		if settleBar != nil {
-			settleBar.update(committed, fmt.Sprintf("%d pending", len(meta)-committed))
+			settleBar.update(resolved, fmt.Sprintf("%d pending", len(meta)-resolved))
 		}
 		if allDone {
 			break
@@ -203,7 +220,7 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if settleBar != nil {
-		settleBar.finish("done")
+		settleBar.finish(countDone(meta), "done")
 	}
 
 	for _, m := range meta {
@@ -227,29 +244,20 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 	drainUntil := time.Now().Add(90 * time.Second)
 	for time.Now().Before(drainUntil) {
 		pending := false
-		committed := 0
+		resolved := 0
 		for i := range meta {
 			if meta[i].done {
-				committed++
+				resolved++
 				continue
 			}
-			if d.collectReply(ctx, meta[i].lastReq) {
-				d.Metrics.Record(Record{
-					Kind:       meta[i].op.Kind,
-					CrossShard: meta[i].op.CrossShard,
-					Committed:  true,
-					SentAt:     meta[i].sentAt,
-					RepliedAt:  time.Now(),
-					Latency:    time.Since(meta[i].sentAt),
-				})
-				meta[i].done = true
-				committed++
+			if d.tryResolve(ctx, &meta[i]) {
+				resolved++
 				continue
 			}
 			pending = true
 		}
 		if drainBar != nil {
-			drainBar.update(committed, fmt.Sprintf("%d pending", len(meta)-committed))
+			drainBar.update(resolved, fmt.Sprintf("%d pending", len(meta)-resolved))
 		}
 		if !pending {
 			break
@@ -257,7 +265,7 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if drainBar != nil {
-		drainBar.finish("done")
+		drainBar.finish(countDone(meta), "done")
 	}
 	if cfg.ShowProgress {
 		newProgressBar("quiesce", 1).message("waiting for stable ledger sum...")
@@ -283,8 +291,9 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 }
 
 func (d *Driver) fundTreasury(ctx context.Context, showProgress bool) error {
-	// Seed each cluster treasury from early customers so DepositChecking can run.
-	total := d.Topo.NumClusters * 5
+	const fundCustomers = 10
+	const fundAmt int64 = 10
+	total := d.Topo.NumClusters * fundCustomers
 	var bar *progressBar
 	if showProgress {
 		bar = newProgressBar("fund", total)
@@ -293,15 +302,15 @@ func (d *Driver) fundTreasury(ctx context.Context, showProgress bool) error {
 	for cluster := 1; cluster <= d.Topo.NumClusters; cluster++ {
 		cid := config.ClusterID(cluster)
 		treasury := d.Schema.TreasuryItem(cid)
-		for local := 1; local <= 5; local++ {
+		for local := 1; local <= fundCustomers; local++ {
 			cust := (cluster-1)*d.Schema.CustomersPerCluster + local
 			chk := d.Schema.CheckingItem(cust)
-			req := d.Gen.nextReq(chk, treasury, 5)
+			req := d.Gen.nextReq(chk, treasury, fundAmt)
 			contact := d.contact(cid)
 			if err := d.Remote.SendRequest(ctx, contact, req); err != nil {
 				return err
 			}
-			_ = d.waitCommitted(ctx, req, 30*time.Second)
+			_, _ = d.waitResult(ctx, req, 30*time.Second)
 			done++
 			if bar != nil {
 				bar.update(done, fmt.Sprintf("cluster %d", cluster))
@@ -309,9 +318,30 @@ func (d *Driver) fundTreasury(ctx context.Context, showProgress bool) error {
 		}
 	}
 	if bar != nil {
-		bar.finish("done")
+		bar.finish(done, "done")
 	}
 	return nil
+}
+
+func (d *Driver) tryResolve(ctx context.Context, m *opMeta) bool {
+	result, ok := d.collectResult(ctx, m.lastReq)
+	if !ok {
+		return false
+	}
+	d.recordResult(m, result)
+	m.done = true
+	return true
+}
+
+func (d *Driver) recordResult(m *opMeta, result string) {
+	d.Metrics.Record(Record{
+		Kind:       m.op.Kind,
+		CrossShard: m.op.CrossShard,
+		Committed:  result == pbft.ResultCommitted,
+		SentAt:     m.sentAt,
+		RepliedAt:  time.Now(),
+		Latency:    time.Since(m.sentAt),
+	})
 }
 
 func (d *Driver) collectResult(ctx context.Context, req pbft.Request) (result string, ok bool) {
@@ -330,18 +360,13 @@ func (d *Driver) collectResult(ctx context.Context, req pbft.Request) (result st
 	return "", false
 }
 
-func (d *Driver) collectReply(ctx context.Context, req pbft.Request) bool {
-	result, ok := d.collectResult(ctx, req)
-	return ok && result == "committed"
-}
-
-func (d *Driver) waitCommitted(ctx context.Context, req pbft.Request, timeout time.Duration) bool {
+func (d *Driver) waitResult(ctx context.Context, req pbft.Request, timeout time.Duration) (string, bool) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if d.collectReply(ctx, req) {
-			return true
+		if result, ok := d.collectResult(ctx, req); ok {
+			return result, true
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return false
+	return "", false
 }

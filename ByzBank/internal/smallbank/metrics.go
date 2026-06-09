@@ -124,14 +124,17 @@ func (m *Metrics) Report() string {
 	all := m.stats(nil)
 	intra := m.stats(func(r Record) bool { return !r.CrossShard })
 	cross := m.stats(func(r Record) bool { return r.CrossShard })
+	writes := m.stats(func(r Record) bool { return r.Kind != KindBalance && r.Committed })
 	return fmt.Sprintf(
 		"SmallBank metrics:\n"+
-			"  overall:  committed=%d/%d throughput=%.2f txns/s mean=%s p50=%s p95=%s p99=%s\n"+
-			"  intra:    committed=%d/%d throughput=%.2f txns/s mean=%s p50=%s p95=%s p99=%s\n"+
-			"  cross:    committed=%d/%d throughput=%.2f txns/s mean=%s p50=%s p95=%s p99=%s\n"+
+			"  overall:  committed=%d/%d throughput=%.3f txns/s wall=%s mean=%s p50=%s p95=%s p99=%s\n"+
+			"  writes:   committed=%d (excl. Bal) throughput=%.3f txns/s mean=%s\n"+
+			"  intra:    committed=%d/%d throughput=%.3f txns/s mean=%s p50=%s p95=%s p99=%s\n"+
+			"  cross:    committed=%d/%d throughput=%.3f txns/s mean=%s p50=%s p95=%s p99=%s\n"+
 			"  penalties applied: %d",
-		all.Committed, all.Count, all.Throughput, all.Mean.Round(time.Millisecond),
+		all.Committed, all.Count, all.Throughput, all.Wall.Round(time.Millisecond), all.Mean.Round(time.Millisecond),
 		all.P50.Round(time.Millisecond), all.P95.Round(time.Millisecond), all.P99.Round(time.Millisecond),
+		writes.Committed, writes.Throughput, writes.Mean.Round(time.Millisecond),
 		intra.Committed, intra.Count, intra.Throughput, intra.Mean.Round(time.Millisecond),
 		intra.P50.Round(time.Millisecond), intra.P95.Round(time.Millisecond), intra.P99.Round(time.Millisecond),
 		cross.Committed, cross.Count, cross.Throughput, cross.Mean.Round(time.Millisecond),
