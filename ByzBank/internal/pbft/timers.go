@@ -9,7 +9,8 @@ import (
 // Tunables holds protocol timing knobs scaled to the cluster size.
 type Tunables struct {
 	ViewChangeTimeout   time.Duration
-	CoordPrepareTimeout time.Duration
+	CoordPrepareTimeout     time.Duration
+	CoordPrepareAbortTimeout time.Duration
 	LockWaitTimeout     time.Duration
 	LockPollInterval   time.Duration
 	ClientPrimaryWait  time.Duration
@@ -34,7 +35,8 @@ func DefaultTunables(topo config.Topology) Tunables {
 	vc := 2*scale + 500*time.Millisecond
 	return Tunables{
 		ViewChangeTimeout:   vc,
-		CoordPrepareTimeout: 12 * vc,
+		CoordPrepareTimeout:      12 * vc,
+		CoordPrepareAbortTimeout: 45 * time.Second,
 		LockWaitTimeout:     scale + 200*time.Millisecond,
 		LockPollInterval:   10 * time.Millisecond,
 		ClientPrimaryWait:  scale + 3*time.Second,

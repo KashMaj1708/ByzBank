@@ -14,6 +14,7 @@ import (
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/config"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/pb"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/pbft"
+	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/store"
 	"github.com/KashMaj1708/2pcbyz-kashmaj1708/internal/transport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -253,6 +254,32 @@ func (r *Remote) PrintDatastore(ctx context.Context, id config.ServerID) (string
 		return "", fmt.Errorf("%s datastore query: %s", id, string(b))
 	}
 	return string(b), nil
+}
+
+// FetchOutstanding returns in-flight WAL and lock counts from one server.
+func (r *Remote) FetchOutstanding(ctx context.Context, id config.ServerID) (store.Outstanding2PC, error) {
+	url, err := r.healthURL(id, "/outstanding")
+	if err != nil {
+		return store.Outstanding2PC{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return store.Outstanding2PC{}, err
+	}
+	resp, err := r.http.Do(req)
+	if err != nil {
+		return store.Outstanding2PC{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return store.Outstanding2PC{}, fmt.Errorf("%s outstanding: %s", id, string(b))
+	}
+	var out store.Outstanding2PC
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return store.Outstanding2PC{}, err
+	}
+	return out, nil
 }
 
 // LookupReply fetches a recorded client reply from one server, if present.

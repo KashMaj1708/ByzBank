@@ -133,7 +133,7 @@ func (c *Coordinator) HandleClientRequest(ctx context.Context, req pbft.Request)
 	if !c.acquireCrossSlot(timers) {
 		return false
 	}
-	if !waitItemUnlocked(c.store, req.X, timers.LockWaitTimeout, timers.LockPollInterval) {
+	if !waitItemUnlocked(ctx, c.store, req.X, timers.LockWaitTimeout, timers.LockPollInterval) {
 		c.ReleaseCrossSlot()
 		return false
 	}
@@ -179,7 +179,63 @@ func (c *Coordinator) OnCoordPrepareExecuted(ctx context.Context, req pbft.Reque
 	}
 	env := transport.NewEnvelope(c.self, transport.Type2PCPrepare, payload)
 	partCluster := c.topo.ClusterOf(req.Y)
-	_ = SendToCluster(ctx, c.topo, c.msg, partCluster, env)
+	// Detach from the execute ctx — it is cancelled when PBFT handling returns;
+	// prepare retry/timeout must survive until a participant reply or safe abort.
+	phaseCtx := context.Background()
+	sendPrepare := func() {
+		_ = SendToCluster(phaseCtx, c.topo, c.msg, partCluster, env)
+	}
+	sendPrepare()
+
+	if !c.commitPhaseDisabled {
+		go c.watchPreparePhase(phaseCtx, req, sendPrepare)
+	}
+}
+
+func (c *Coordinator) watchPreparePhase(ctx context.Context, req pbft.Request, resend func()) {
+	timers := pbft.DefaultTunables(*c.topo)
+	timeout := timers.CoordPrepareAbortTimeout
+	if timeout <= 0 {
+		timeout = 45 * time.Second
+	}
+	key := pbft.TxnID(req)
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(timers.AckRetryInterval)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if c.collector != nil && c.collector.Has(req) {
+			return
+		}
+		c.commitMu.Lock()
+		if c.commitStarted[key] {
+			c.commitMu.Unlock()
+			return
+		}
+		c.commitMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			resend()
+		}
+	}
+	c.commitMu.Lock()
+	if c.commitStarted[key] || (c.collector != nil && c.collector.Has(req)) {
+		c.commitMu.Unlock()
+		return
+	}
+	c.commitStarted[key] = true
+	c.commitMu.Unlock()
+	abort := req
+	abort.Op = pbft.OpCoordAbort
+	abortDeadline := time.Now().Add(timers.AckRetryDeadline)
+	for time.Now().Before(abortDeadline) {
+		if !c.store.WALExists(key) {
+			return
+		}
+		c.engine.StartConsensus(ctx, abort)
+		time.Sleep(timers.AckRetryInterval)
+	}
 }
 
 // OnPartPrepareExecuted is unused on the coordinator.
@@ -211,12 +267,21 @@ func (c *Coordinator) maybeStartFinalCommit(ctx context.Context, reply Participa
 	}
 	key := pbft.TxnID(reply.Req)
 	c.commitMu.Lock()
-	if c.commitStarted[key] {
-		c.commitMu.Unlock()
+	already := c.commitStarted[key]
+	if !already {
+		c.commitStarted[key] = true
+	}
+	c.commitMu.Unlock()
+	if already {
+		// Late prepare reply after a timeout abort was started: if the participant
+		// credited y, re-drive coordinator abort so ack-retried delivery can undo it.
+		if reply.Outcome == store.OutcomeCommit {
+			abort := reply.Req
+			abort.Op = pbft.OpCoordAbort
+			c.engine.StartConsensus(ctx, abort)
+		}
 		return
 	}
-	c.commitStarted[key] = true
-	c.commitMu.Unlock()
 
 	req := reply.Req
 	if reply.Outcome == store.OutcomeCommit {

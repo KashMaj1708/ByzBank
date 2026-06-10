@@ -264,9 +264,16 @@ func (e *Engine) enqueuePrimary(ctx context.Context, req Request, fromClient boo
 	if fromClient {
 		ch = e.clientIngressCh
 	}
-	select {
-	case ch <- item:
-	case <-ctx.Done():
+	ticker := time.NewTicker(e.tunables.LockPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case ch <- item:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

@@ -19,6 +19,17 @@ func (r *Replica) RegisterHTTP(mux *http.ServeMux) {
 	mux.HandleFunc("/reply", r.handleHTTPReply)
 	mux.HandleFunc("/drain", r.handleHTTPDrain)
 	mux.HandleFunc("/reset_consensus", r.handleHTTPResetConsensus)
+	mux.HandleFunc("/outstanding", r.handleHTTPOutstanding)
+}
+
+func (r *Replica) handleHTTPOutstanding(w http.ResponseWriter, _ *http.Request) {
+	out, err := r.Store.Outstanding2PC()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (r *Replica) handleHTTPResetConsensus(w http.ResponseWriter, req *http.Request) {

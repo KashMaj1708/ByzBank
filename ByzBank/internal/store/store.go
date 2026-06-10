@@ -371,6 +371,40 @@ func (s *Store) WALDelete(txnID string) error {
 	})
 }
 
+// Outstanding2PC summarizes in-flight cross-shard state on one replica.
+type Outstanding2PC struct {
+	WALCount  int      `json:"wal_count"`
+	LockCount int      `json:"lock_count"`
+	WALTxnIDs []string `json:"wal_txn_ids"`
+}
+
+// Outstanding2PC returns counts of WAL entries and held locks.
+func (s *Store) Outstanding2PC() (Outstanding2PC, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out Outstanding2PC
+	err := s.db.View(func(tx *bolt.Tx) error {
+		wal := tx.Bucket(bucketWAL)
+		if wal != nil {
+			_ = wal.ForEach(func(k, _ []byte) error {
+				out.WALCount++
+				out.WALTxnIDs = append(out.WALTxnIDs, string(k))
+				return nil
+			})
+		}
+		locks := tx.Bucket(bucketLocks)
+		if locks != nil {
+			_ = locks.ForEach(func(k, _ []byte) error {
+				out.LockCount++
+				_ = k
+				return nil
+			})
+		}
+		return nil
+	})
+	return out, err
+}
+
 // WALExists reports whether a WAL entry is present.
 func (s *Store) WALExists(txnID string) bool {
 	s.mu.Lock()

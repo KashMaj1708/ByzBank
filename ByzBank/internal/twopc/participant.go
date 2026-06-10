@@ -68,12 +68,32 @@ func (p *Participant) HandlePrepare(ctx context.Context, payload []byte) {
 		return
 	}
 	req := msg.Req
-	timers := pbft.DefaultTunables(*p.topo)
-	deadline := time.Now().Add(timers.LockWaitTimeout + timers.ViewChangeTimeout)
-	for p.engine.HasPendingClientPBFT() && time.Now().Before(deadline) {
-		time.Sleep(timers.LockPollInterval)
+	if p.store.WALExists(pbft.TxnID(req)) {
+		p.resendPrepareReply(ctx, req, msg.CommitCert, store.OutcomeCommit)
+		return
 	}
-	if waitItemUnlocked(p.store, req.Y, timers.LockWaitTimeout, timers.LockPollInterval) {
+	if outcome, ok := p.prepareOutcome(req); ok {
+		p.resendPrepareReply(ctx, req, msg.CommitCert, outcome)
+		return
+	}
+	timers := pbft.DefaultTunables(*p.topo)
+	pendingCap := timers.LockPollInterval * 50
+	if pendingCap > time.Second {
+		pendingCap = time.Second
+	}
+	deadline := time.Now().Add(pendingCap)
+	for p.engine.HasPendingClientPBFT() && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(timers.LockPollInterval):
+		}
+	}
+	lockWait := timers.LockWaitTimeout / 2
+	if lockWait < 500*time.Millisecond {
+		lockWait = 500 * time.Millisecond
+	}
+	if waitItemUnlocked(ctx, p.store, req.Y, lockWait, timers.LockPollInterval) {
 		req.Op = pbft.OpPartPrepareCommit
 	} else {
 		req.Op = pbft.OpPartPrepareAbort
@@ -107,36 +127,32 @@ func (p *Participant) HandleCommit(ctx context.Context, payload []byte) {
 	p.engine.StartConsensus(ctx, client)
 }
 
-func (p *Participant) prepareWasAbort(req pbft.Request) bool {
+func (p *Participant) prepareOutcome(req pbft.Request) (store.Outcome, bool) {
 	entries, err := p.store.Datastore()
 	if err != nil {
-		return false
+		return "", false
 	}
 	want := pbft.TxnID(req)
 	for _, e := range entries {
-		if e.Phase != store.PhasePrepare || e.Outcome != store.OutcomeAbort {
+		if e.Phase != store.PhasePrepare {
 			continue
 		}
 		entryReq := pbft.Request{X: e.X, Y: e.Y, Amt: e.Amt, ClientID: req.ClientID, TS: req.TS}
 		if pbft.TxnID(entryReq) == want {
-			return true
+			return e.Outcome, true
 		}
 	}
-	return false
+	return "", false
 }
 
-// OnPartPrepareExecuted sends the participant certificate back to the coordinator cluster.
-func (p *Participant) OnPartPrepareExecuted(ctx context.Context, req pbft.Request, seq int64, cert pbft.CertificateMsg, outcome store.Outcome) {
-	if p.self != p.primary() {
-		return
-	}
+func (p *Participant) resendPrepareReply(ctx context.Context, req pbft.Request, cert pbft.CertificateMsg, outcome store.Outcome) {
 	client := req
 	client.Op = ""
 	reply := ParticipantReplyMsg{
 		Req:        client,
 		Outcome:    outcome,
 		CommitCert: cert,
-		PartSeq:    seq,
+		PartSeq:    0,
 	}
 	payload, err := marshal(reply)
 	if err != nil {
@@ -149,6 +165,19 @@ func (p *Participant) OnPartPrepareExecuted(ctx context.Context, req pbft.Reques
 	env := transport.NewEnvelope(p.self, typ, payload)
 	coordCluster := p.topo.ClusterOf(req.X)
 	_ = SendToCluster(ctx, p.topo, p.msg, coordCluster, env)
+}
+
+func (p *Participant) prepareWasAbort(req pbft.Request) bool {
+	outcome, ok := p.prepareOutcome(req)
+	return ok && outcome == store.OutcomeAbort
+}
+
+// OnPartPrepareExecuted sends the participant certificate back to the coordinator cluster.
+func (p *Participant) OnPartPrepareExecuted(ctx context.Context, req pbft.Request, seq int64, cert pbft.CertificateMsg, outcome store.Outcome) {
+	if p.self != p.primary() {
+		return
+	}
+	p.resendPrepareReply(ctx, req, cert, outcome)
 }
 
 // OnPartCommitExecuted sends an ack to the coordinator cluster.

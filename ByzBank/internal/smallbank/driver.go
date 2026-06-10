@@ -241,7 +241,7 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 	if cfg.ShowProgress {
 		drainBar = newProgressBar("drain", len(meta))
 	}
-	drainUntil := time.Now().Add(90 * time.Second)
+	drainUntil := time.Now().Add(cfg.SettleTimeout)
 	for time.Now().Before(drainUntil) {
 		pending := false
 		resolved := 0
@@ -268,17 +268,29 @@ func (d *Driver) Run(ctx context.Context, cfg Config) error {
 		drainBar.finish(countDone(meta), "done")
 	}
 	if cfg.ShowProgress {
-		newProgressBar("quiesce", 1).message("waiting for stable ledger sum...")
+		newProgressBar("quiesce", 1).message("waiting for zero WAL...")
 	}
-	if err := WaitLedgerStable(ctx, d.Remote, d.Topo, d.Schema, 5*time.Second, 120*time.Second); err != nil {
-		return fmt.Errorf("quiescence: %w", err)
+	quiesceWait := cfg.SettleTimeout
+	if quiesceWait < 180*time.Second {
+		quiesceWait = 180 * time.Second
+	}
+	outstanding, qerr := Wait2PCQuiescence(ctx, d.Remote, d.Topo, quiesceWait)
+	if qerr != nil {
+		return fmt.Errorf("2pc quiescence: %w", qerr)
 	}
 
 	final, err := SumBalances(ctx, d.Remote, d.Topo, d.Schema)
 	if err != nil {
 		return fmt.Errorf("final sum: %w", err)
 	}
+	if outstanding.TotalLocks > 0 {
+		fmt.Printf("Note: %d item locks remain without WAL (throughput wedge, not conservation)\n", outstanding.TotalLocks)
+	}
 	if err := CheckConservation(initial, final, d.Metrics.Penalties()); err != nil {
+		if outstanding.TotalWAL > 0 {
+			return fmt.Errorf("stranded 2PC: wal=%d locks=%d txns=%v (frozen sum, not a leak): %w",
+				outstanding.TotalWAL, outstanding.TotalLocks, outstanding.TxnIDs, err)
+		}
 		perCluster, _, derr := SumBalancesByCluster(ctx, d.Remote, d.Topo, d.Schema)
 		if derr == nil {
 			return fmt.Errorf("%w; per-cluster=%v", err, perCluster)
